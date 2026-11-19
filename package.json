@@ -1,0 +1,64 @@
+{
+  "name": "voiceclone-studio",
+  "productName": "VoiceClone Studio",
+  "version": "0.1.0",
+  "description": "Clone giọng, đọc văn bản, lồng tiếng video, sách nói — chạy trên máy",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "node tools/prepare-bin.mjs && electron-builder --win nsis"
+  },
+  "devDependencies": {
+    "electron": "43.7.9",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.vvo.voiceclonestudio",
+    "productName": "VoiceClone Studio",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "shell/**",
+      "package.json",
+      "build/icon.png"
+    ],
+    "extraResources": [
+      {
+        "from": "engine",
+        "to": "engine",
+        "filter": [
+          "**/*",
+          "!**/__pycache__/**"
+        ]
+      },
+      {
+        "from": "ui",
+        "to": "ui"
+      },
+      {
+        "from": "bin",
+        "to": "bin"
+      },
+      {
+        "from": "NOTICE.txt",
+        "to": "NOTICE.txt"
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "artifactName": "VoiceClone-Studio-${version}-setup.${ext}"
+    }
+  },
+  "author": "VVO"
+}

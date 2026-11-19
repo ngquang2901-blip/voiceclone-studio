@@ -1,0 +1,10 @@
+node_modules/
+release/
+bin/
+test-out/
+__pycache__/
+*.pyc
+.venv/
+*.log
+license.key
+*.pem

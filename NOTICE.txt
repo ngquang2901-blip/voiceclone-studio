@@ -1,0 +1,18 @@
+VoiceClone Studio — thông báo thành phần bên thứ ba / third-party notices
+
+Built with Higgs Materials licensed from Boson AI USA, Inc., Copyright Boson AI USA, Inc., All Rights Reserved and Meta Llama 3 licensed under the Meta Llama 3 Community License, Copyright Meta Platforms, Inc., All Right Reserved. based on Meta Llama 3
+
+Meta Llama 3 is licensed under the Meta Llama 3 Community License, Copyright © Meta Platforms, Inc. All Rights Reserved.
+Boson Higgs Audio 2 is licensed under the Boson Community License, Copyright © Boson AI USA, Inc. All Rights Reserved.
+(The OmniVoice audio tokenizer is a Higgs Audio 2 derivative; its licence text ships with the model files, audio_tokenizer/LICENSE.)
+
+Components downloaded on first run:
+- OmniVoice (k2-fsa) — Apache License 2.0 — https://github.com/k2-fsa/OmniVoice
+- faster-whisper (SYSTRAN) and Whisper large-v3 / small weights — MIT
+- Demucs (Meta / adefossez) and htdemucs weights — MIT
+- Argos Translate and its language packages — MIT (packages: CC0/CC-BY per package)
+- PyTorch — BSD-3-Clause; FastAPI, Uvicorn — MIT/BSD; Hugging Face Transformers / Hub — Apache-2.0
+Shipped with the app:
+- uv (Astral) — MIT / Apache-2.0
+- FFmpeg — LGPL-2.1+ / GPL depending on the build shipped in bin/ (release builds must use an LGPL build)
+- Electron — MIT; Chromium — BSD-style

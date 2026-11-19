@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="vi"><head><meta charset="utf-8"><title>VoiceClone Studio</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<style>
+html,body{margin:0;height:100%;background:#0b0b0c;color:#e8e8ea;font:14px/1.5 "Segoe UI",system-ui,sans-serif;-webkit-app-region:drag;user-select:none}
+.wrap{height:100%;display:flex;flex-direction:column;justify-content:center;padding:0 56px;box-sizing:border-box}
+.brand{position:absolute;top:18px;left:22px;display:flex;align-items:center;gap:10px;font-weight:600}
+.logo{width:26px;height:26px;border-radius:7px;background:linear-gradient(135deg,#3b82f6,#a855f7);display:grid;place-items:center}
+.pill{display:inline-flex;align-items:center;gap:8px;border:1px solid #26262a;background:#141416;border-radius:999px;padding:3px 10px;font-size:12px;color:#a1a1aa;width:max-content}
+.spin{width:12px;height:12px;border:2px solid #3b82f6;border-right-color:transparent;border-radius:50%;animation:s .8s linear infinite}
+@keyframes s{to{transform:rotate(360deg)}}
+h1{font-size:26px;margin:14px 0 6px;font-weight:600}
+p{margin:0;color:#a1a1aa}
+.bar{height:4px;background:#1c1c1f;border-radius:4px;margin-top:22px;overflow:hidden}
+.bar>i{display:block;height:100%;width:0;background:#3b82f6;transition:width .4s}
+.detail{font:12px Consolas,monospace;color:#6b6b74;margin-top:10px;height:18px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.err h1{color:#f87171}.err .spin{display:none}
+.btns{margin-top:22px;display:none;gap:10px;-webkit-app-region:no-drag}.err .btns{display:flex}
+button{font:inherit;border-radius:8px;padding:7px 16px;border:1px solid #2a2a2e;background:#18181b;color:#e8e8ea;cursor:pointer}
+button.primary{background:#3b82f6;border-color:#3b82f6;color:#fff}
+.close{position:absolute;top:14px;right:16px;-webkit-app-region:no-drag;background:none;border:none;color:#6b6b74;font-size:18px;padding:4px 8px}
+</style></head>
+<body><div class="brand"><span class="logo"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"><path d="M3 12h2M8 7v10M12 4v16M16 8v8M20 11v2"/></svg></span>VoiceClone Studio</div>
+<button class="close" title="Thoát" onclick="shell.quit()">✕</button>
+<div class="wrap" id="w">
+  <div class="pill"><span class="spin"></span><span id="state">Đang mở</span> <span id="elapsed"></span></div>
+  <h1 id="title">Đang khởi động…</h1>
+  <p id="msg">Lần chạy đầu có thể mất vài phút để chuẩn bị môi trường AI.</p>
+  <div class="bar"><i id="bar"></i></div>
+  <div class="detail" id="detail"></div>
+  <div class="btns"><button class="primary" onclick="retry()">Thử lại</button><button onclick="shell.openLogs()">Mở log</button><button onclick="shell.quit()">Thoát</button></div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+const LABEL={setup:"Cài đặt lần đầu",starting:"Đang khởi động",error:"Lỗi"};
+function retry(){$('w').classList.remove('err');$('title').textContent='Đang thử lại…';shell.retry()}
+shell.onStatus(s=>{
+  $('state').textContent=LABEL[s.state]||s.state;
+  $('elapsed').textContent=s.elapsed?`${s.elapsed}s`:'';
+  if(s.state==='error'){$('w').classList.add('err');$('title').textContent='Không khởi động được';$('msg').textContent=s.message;return}
+  $('title').textContent=s.state==='setup'?'Đang cài đặt môi trường AI…':'Đang khởi động engine…';
+  $('msg').textContent=s.message;
+  if(s.step)$('bar').style.width=`${Math.min(98,((s.step-1)+(s.state==='setup'&&s.count?Math.min(.95,s.count/230):.5))/s.steps*100)}%`;
+  $('detail').textContent=s.detail||'';
+});
+</script></body></html>
