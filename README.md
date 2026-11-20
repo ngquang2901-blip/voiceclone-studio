@@ -3,6 +3,9 @@
 App desktop chạy hoàn toàn trên máy: **clone giọng**, **thiết kế giọng bằng mô tả**, **đọc văn bản**, **lồng tiếng video** (tách nhạc nền, dịch offline hoặc bằng AI), **sách nói** (m4b có chương), **chép lời** (TXT/SRT/VTT). Có khoá trả phí bằng license key.
 Bản dựng lại (clean-room) theo hành vi đo được của VoiceStudio 0.5.8: không dùng code VoiceStudio (AGPL).
 
+> **Giấy phép model khi bán:** chỉ VieNeu (Apache-2.0) được dùng thương mại. Trọng số OmniVoice là CC-BY-NC
+> (k2-fsa xác nhận ở issue #235/#258): bản bán phải bỏ OmniVoice, tức là mất thiết kế giọng và các ngôn ngữ ngoài Việt/Anh.
+
 ## Cách hoạt động
 ```
 VoiceClone Studio.exe (Electron)
@@ -10,7 +13,8 @@ VoiceClone Studio.exe (Electron)
  │           (có GPU NVIDIA → torch CUDA 12.8; không có → torch CPU)
  ├─ mỗi lần mở: bật engine (FastAPI, 127.0.0.1:3910 hoặc cổng trống kế tiếp), màn hình chờ đến khi /health ok
  ├─ cửa sổ chính: giao diện ui/ do engine phục vụ; đóng app = tắt engine (engine cũng tự thoát nếu app chết)
- └─ engine: OmniVoice (TTS/clone/design) · faster-whisper (ASR, chạy CPU) · Demucs (tách nhạc) · Argos (dịch offline)
+ └─ engine: VieNeu-TTS v3 Turbo (đọc/clone tiếng Việt-Anh, CPU, Apache-2.0) · OmniVoice (ngôn ngữ khác + thiết kế giọng,
+            trọng số CC-BY-NC: chỉ phi thương mại) · faster-whisper (ASR, CPU) · Demucs (tách nhạc) · Argos (dịch offline)
             mọi việc dài chạy nền (jobs) qua 1 hàng GPU; model tải lần đầu trong Cài đặt → Model
 Dữ liệu: %APPDATA%\VoiceCloneStudio\ (voices, takes, dub, audiobooks, transcriptions, models, logs, license.key)
 ```

@@ -7,7 +7,10 @@ Boson Higgs Audio 2 is licensed under the Boson Community License, Copyright © 
 (The OmniVoice audio tokenizer is a Higgs Audio 2 derivative; its licence text ships with the model files, audio_tokenizer/LICENSE.)
 
 Components downloaded on first run:
-- OmniVoice (k2-fsa) — Apache License 2.0 — https://github.com/k2-fsa/OmniVoice
+- VieNeu-TTS v3 Turbo (Phạm Nguyễn Ngọc Bảo) — Apache License 2.0 — https://github.com/pnnbao97/VieNeu-TTS (default Vietnamese/English voice engine; its outputs carry the SDK's default audio watermark)
+- MOSS-Audio-Tokenizer-Nano (OpenMOSS-Team) — Apache License 2.0; sea-g2p — Apache License 2.0
+- OmniVoice (k2-fsa) — code Apache License 2.0; pre-trained weights CC-BY-NC 4.0 (NON-COMMERCIAL) — https://github.com/k2-fsa/OmniVoice
+  Optional engine (other languages, voice design). Commercial builds must not download or ship it.
 - faster-whisper (SYSTRAN) and Whisper large-v3 / small weights — MIT
 - Demucs (Meta / adefossez) and htdemucs weights — MIT
 - Argos Translate and its language packages — MIT (packages: CC0/CC-BY per package)
