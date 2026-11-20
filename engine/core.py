@@ -6,7 +6,7 @@ import soundfile as sf
 
 from jobs import JobError
 
-VERSION = "0.2.0"
+VERSION = "0.2.1"
 SR = 24000
 DATA = os.environ.get("VC_DATA") or os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "VoiceCloneStudio")
 D = {k: os.path.join(DATA, k) for k in ("voices", "takes", "transcriptions", "dub", "audiobooks", "designs", "models")}
@@ -96,7 +96,7 @@ def atempo_chain(f):
 # ---------- model files ----------
 MODELS = {
     "tts": {"name": "OmniVoice (giọng nói, clone, thiết kế giọng)", "repo": "k2-fsa/OmniVoice", "files": ["model.safetensors", "audio_tokenizer/model.safetensors"], "size_mb": 3260, "required": True,
-            "license": "Apache-2.0 (code) · audio tokenizer: Boson Higgs Audio 2 Community License"},
+            "license": "Trọng số CC-BY-NC (phi thương mại) · code Apache-2.0 · tokenizer: Boson Higgs Audio 2 Community License"},
     "asr-large-v3": {"name": "Whisper large-v3 (chép lời, chính xác)", "repo": "Systran/faster-whisper-large-v3", "files": ["model.bin"], "size_mb": 3090,
                      "required": False, "license": "MIT"},
     "asr-small": {"name": "Whisper small (chép lời, nhẹ)", "repo": "Systran/faster-whisper-small", "files": ["model.bin"], "size_mb": 484, "required": False,
