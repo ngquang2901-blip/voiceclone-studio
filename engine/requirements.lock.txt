@@ -1,6 +1,5 @@
 # Exact runtime set, installed with: uv pip install --no-deps -r requirements.lock.txt (GPU: index cu128; CPU: main.js strips +cu128).
 # omnivoice is k2-fsa's Apache-2.0 package from PyPI (NOT VoiceStudio's AGPL package of the same name).
-# vieneu (VieNeu-TTS v3 Turbo SDK, Apache-2.0) runs on its ONNX/CPU path; its gradio dependency is only for its own web demo and is left out.
 accelerate==1.16.0
 annotated-doc==0.0.7
 annotated-types==0.8.0
@@ -31,17 +30,16 @@ flatbuffers==25.12.19
 fsspec==2026.9.0
 h11==0.16.0
 hf-xet==1.8.0
-httpcore2==2.16.2
 httpcore==1.0.9
+httpcore2==2.16.2
 httptools==0.9.0
-httpx2==2.16.2
 httpx==0.28.1
+httpx2==2.16.2
 huggingface-hub==2.4.0
 idna==3.20
 jinja2==3.1.6
 joblib==1.6.0
 julius==0.2.8
-kaldi-native-fbank==1.23.3
 lameenc==1.9.0
 lazy-loader==0.6
 librosa==1.0.1
@@ -67,8 +65,8 @@ preshed==3.0.15
 protobuf==7.36.2
 psutil==7.2.2
 pycparser==3.12
-pydantic-core==2.50.4
 pydantic==2.14.3
+pydantic-core==2.50.4
 pydub==0.25.1
 pygments==2.21.0
 python-dotenv==1.2.4
@@ -81,16 +79,15 @@ sacremoses==0.1.1
 safetensors==0.8.0
 scikit-learn==1.9.1
 scipy==1.18.1
-sea-g2p==0.10.0
 sentencepiece==0.2.3
 setuptools==84.2.1
 shellingham==1.5.4
 smart-open==9.0.4
 soundfile==0.14.0
 soxr==1.1.0
+spacy==3.8.18
 spacy-legacy==3.0.12
 spacy-loggers==1.0.5
-spacy==3.8.18
 sphn==0.2.1
 srsly==2.5.6
 stanza==1.10.1
@@ -109,7 +106,6 @@ typing-extensions==4.16.0
 typing-inspection==0.4.5
 urllib3==2.8.0
 uvicorn==0.54.0
-vieneu==3.8.5
 wasabi==1.1.3
 watchfiles==1.3.0
 weasel==1.0.1

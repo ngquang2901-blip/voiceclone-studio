@@ -22,7 +22,7 @@ FFMPEG = os.environ.get("VC_FFMPEG") or shutil.which("ffmpeg") or "ffmpeg"
 FFPROBE = os.environ.get("VC_FFPROBE") or shutil.which("ffprobe") or "ffprobe"
 gpu = threading.RLock()  # every model call; jobs already run on one lane, this also covers the sync /speech route
 
-DEFAULTS = {"device": "auto", "tts_engine": "vieneu", "quality": "balanced", "asr_model": "large-v3", "llm": {"base_url": "", "model": "", "api_key": ""}}
+DEFAULTS = {"device": "auto", "quality": "balanced", "asr_model": "large-v3", "llm": {"base_url": "", "model": "", "api_key": ""}}
 QUALITY_STEPS = {"fast": 16, "balanced": 32, "quality": 48}
 
 LANGS = [("vi", "Tiếng Việt", "Vietnamese"), ("en", "Tiếng Anh", "English"), ("ja", "Tiếng Nhật", "Japanese"),
@@ -95,12 +95,8 @@ def atempo_chain(f):
 
 # ---------- model files ----------
 MODELS = {
-    "tts-vi": {"name": "VieNeu-TTS v3 Turbo (tiếng Việt/Anh, clone giọng, chạy CPU)", "repo": "pnnbao-ump/VieNeu-TTS-v3-Turbo",
-               "files": ["speaker_encoder.onnx", "onnx_update/vieneu_backbone_shared.data"],
-               "also": {"OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano-ONNX": ["moss_audio_tokenizer_encode.onnx", "moss_audio_tokenizer_decode_step.onnx"]},
-               "size_mb": 1000, "required": True, "license": "Apache-2.0 (model, MOSS codec, sea-g2p) — dùng thương mại được"},
-    "tts": {"name": "OmniVoice (600 ngôn ngữ, thiết kế giọng)", "repo": "k2-fsa/OmniVoice", "files": ["model.safetensors", "audio_tokenizer/model.safetensors"], "size_mb": 3260, "required": False,
-            "license": "CC-BY-NC (trọng số): KHÔNG dùng thương mại · code Apache-2.0 · tokenizer: Boson Higgs Audio 2 Community License"},
+    "tts": {"name": "OmniVoice (giọng nói, clone, thiết kế giọng)", "repo": "k2-fsa/OmniVoice", "files": ["model.safetensors", "audio_tokenizer/model.safetensors"], "size_mb": 3260, "required": True,
+            "license": "Apache-2.0 (code) · audio tokenizer: Boson Higgs Audio 2 Community License"},
     "asr-large-v3": {"name": "Whisper large-v3 (chép lời, chính xác)", "repo": "Systran/faster-whisper-large-v3", "files": ["model.bin"], "size_mb": 3090,
                      "required": False, "license": "MIT"},
     "asr-small": {"name": "Whisper small (chép lời, nhẹ)", "repo": "Systran/faster-whisper-small", "files": ["model.bin"], "size_mb": 484, "required": False,
@@ -114,22 +110,16 @@ def asr_model_id():
     return "asr-" + settings()["asr_model"]
 
 
-def _repo_dir(repo):
-    return os.path.join(HF_CACHE, "models--" + repo.replace("/", "--"))
-
-
-def _snapshot(repo, files):
-    # Weights present = installed; huggingface_hub 2.x also wants README/.gitattributes to call a snapshot complete.
-    try: rev = open(os.path.join(_repo_dir(repo), "refs", "main"), encoding="ascii").read().strip()
-    except OSError: return None
-    snap = os.path.join(_repo_dir(repo), "snapshots", rev)
-    return snap if all(os.path.isfile(os.path.join(snap, f)) for f in files) else None
-
-
 def model_path(mid):
     m = MODELS[mid]
-    snap = _snapshot(m["repo"], m["files"])
-    return snap if snap and all(_snapshot(r, f) for r, f in m.get("also", {}).items()) else None
+    if "repo" in m:
+        # Weights present = installed; huggingface_hub 2.x also wants README/.gitattributes to call a snapshot complete.
+        repo_dir = os.path.join(HF_CACHE, "models--" + m["repo"].replace("/", "--"))
+        try: rev = open(os.path.join(repo_dir, "refs", "main"), encoding="ascii").read().strip()
+        except OSError: return None
+        snap = os.path.join(repo_dir, "snapshots", rev)
+        return snap if all(os.path.isfile(os.path.join(snap, f)) for f in m["files"]) else None
+    return None
 
 
 def models_view():
@@ -141,7 +131,7 @@ def models_view():
 
 
 def models_ready():
-    return (model_path("tts-vi") or model_path("tts")) is not None and model_path(asr_model_id()) is not None
+    return model_path("tts") is not None and model_path(asr_model_id()) is not None
 
 
 def _dir_size(path):
@@ -153,28 +143,24 @@ def download_model(job, mid):
     if model_path(mid): return {"id": mid, "installed": True}
     total = m["size_mb"] * 2**20
     from huggingface_hub import snapshot_download
-    dirs = [_repo_dir(r) for r in [m["repo"], *m.get("also", {})]]
+    repo_dir = os.path.join(HF_CACHE, "models--" + m["repo"].replace("/", "--"))
     done = threading.Event()
 
     def watch():
         while not done.wait(1):
-            got = sum(_dir_size(d) for d in dirs if os.path.isdir(d))
-            job.update(min(0.99, got / total), f"Đang tải {m['name']}: {got / 2**20:.0f} / {m['size_mb']} MB")
+            if os.path.isdir(repo_dir):
+                got = _dir_size(repo_dir)
+                job.update(min(0.99, got / total), f"Đang tải {m['name']}: {got / 2**20:.0f} / {m['size_mb']} MB")
     threading.Thread(target=watch, daemon=True).start()
-    try:
-        # VieNeu fetches exactly the ONNX files it runs from both repos; the full repos also hold GGUF/PyTorch copies.
-        if mid == "tts-vi": vieneu_model()
-        else: snapshot_download(m["repo"], cache_dir=HF_CACHE)
+    try: snapshot_download(m["repo"], cache_dir=HF_CACHE)
     except Exception as e: raise JobError("download_failed", f"Tải model lỗi (kiểm tra mạng): {e}")
     finally: done.set()
     return {"id": mid, "installed": True}
 
 
 # ---------- loaded models ----------
-_tts = _asr = _sep = _vn = None
+_tts = _asr = _sep = None
 _prompts: dict[str, object] = {}
-_vn_voices: set[str] = set()
-vn_lock = threading.Lock()  # VieNeu runs on the CPU, so it does not queue behind the GPU lock
 
 
 def device():
@@ -201,15 +187,6 @@ def tts_model():
     return _tts
 
 
-def vieneu_model():
-    global _vn
-    with vn_lock:
-        if _vn is None:
-            from vieneu import Vieneu
-            _vn = Vieneu(backend="onnx")  # CPU/ONNX: leaves the GPU to Whisper/Demucs and needs no torch/transformers pins
-    return _vn
-
-
 def asr_model():
     global _asr
     if _asr is None:
@@ -219,8 +196,7 @@ def asr_model():
 
 
 def unload():
-    global _tts, _asr, _sep, _vn
-    with vn_lock: _vn = None; _vn_voices.clear()
+    global _tts, _asr, _sep
     with gpu:
         _tts = _asr = _sep = None; _prompts.clear()
         import gc, torch
@@ -229,7 +205,7 @@ def unload():
 
 
 def loaded():
-    return {"tts_loaded": _tts is not None or _vn is not None, "asr_loaded": _asr is not None}
+    return {"tts_loaded": _tts is not None, "asr_loaded": _asr is not None}
 
 
 # ---------- TTS ----------
@@ -257,27 +233,7 @@ def voice_prompt(voice):
 
 
 def forget_voice(vid):
-    _prompts.pop(vid, None); _vn_voices.discard(vid)
-
-
-def use_vieneu(text, language, instruct):
-    """VieNeu (commercial-safe) reads Vietnamese/English clones; OmniVoice is only for other languages and voice design."""
-    lang = language or ("en" if text.isascii() else None)  # undetected non-ASCII text may be any language: not VieNeu's
-    return settings()["tts_engine"] == "vieneu" and not instruct and lang in ("vi", "en") and model_path("tts-vi") is not None
-
-
-def vieneu_generate(text, voice, speed=None, duration=None):
-    import librosa, soxr
-    m = vieneu_model()
-    with vn_lock:
-        if voice["id"] not in _vn_voices:
-            m.add_voice(voice["id"], ref_audio=os.path.join(D["voices"], voice["id"], "ref.wav")); _vn_voices.add(voice["id"])
-        a = np.asarray(m.infer(text, voice=voice["id"]), dtype=np.float32)
-    a = soxr.resample(a, getattr(m, "sample_rate", 48000), SR).astype(np.float32)
-    # VieNeu has no duration/speed control: stretch afterwards (dub fitting passes a target duration).
-    target = duration or (len(a) / SR / speed if speed and abs(speed - 1) > 0.01 else None)
-    if target and len(a): a = librosa.effects.time_stretch(a, rate=(len(a) / SR) / target).astype(np.float32)
-    return a
+    _prompts.pop(vid, None)
 
 
 def generate(text, voice=None, instruct=None, language=None, speed=None, duration=None, quality=None):
@@ -286,7 +242,6 @@ def generate(text, voice=None, instruct=None, language=None, speed=None, duratio
     if not language:
         from textplan import guess_language
         language = guess_language(text)
-    if voice and use_vieneu(text, language, instruct): return vieneu_generate(text, voice, speed, duration)
     with gpu:  # first import of omnivoice also happens here: two threads importing it at once broke the package import
         m = tts_model()
         from omnivoice.models.omnivoice import OmniVoiceGenerationConfig

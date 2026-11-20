@@ -620,7 +620,6 @@ PAGES.settings = {
       const sel = (opts, val, onch, aria) => { const s = h('select', { 'aria-label': aria }, opts.map(([v, l]) => h('option', { value: v }, l))); s.value = val; s.addEventListener('change', () => onch(s.value).catch(e => toast(e.message, 'err'))); return s; };
       if (sec === 'general') col.append(h('div', { class: 'card' },
         field('Thiết bị tính toán', sel([['auto', 'Tự động'], ['cuda', 'GPU (CUDA)'], ['cpu', 'CPU']], st.device, v => patch({ device: v }), 'Thiết bị')),
-        field('Engine đọc tiếng Việt/Anh', sel([['vieneu', 'VieNeu v3 Turbo (dùng thương mại được, chạy CPU)'], ['omnivoice', 'OmniVoice (chỉ dùng phi thương mại)']], st.tts_engine || 'vieneu', v => patch({ tts_engine: v }), 'Engine đọc')),
         field('Chất lượng mặc định', sel([['fast', 'Nhanh'], ['balanced', 'Cân bằng'], ['quality', 'Chất lượng']], st.quality, v => patch({ quality: v }), 'Chất lượng')),
         field('Model chép lời', sel([['large-v3', 'large-v3 (chính xác, nặng)'], ['small', 'small (nhanh, nhẹ)']], st.asr_model, v => patch({ asr_model: v }), 'Model chép lời'))));
       if (sec === 'models') await modelsSection();

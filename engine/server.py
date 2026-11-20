@@ -99,7 +99,7 @@ def health():
 @app.get("/settings")
 def get_settings():
     s = core.settings(); llm = s["llm"]
-    return {**{k: s[k] for k in ("device", "tts_engine", "quality", "asr_model")}, "data_dir": core.DATA,
+    return {**{k: s[k] for k in ("device", "quality", "asr_model")}, "data_dir": core.DATA,
             "llm": {"base_url": llm["base_url"], "model": llm["model"], "has_key": bool(llm["api_key"])}}
 
 
@@ -108,7 +108,6 @@ def patch_settings(body: dict = Body(...)):
     s = core.settings(); before = (s["device"], s["asr_model"])
     if body.get("device") in ("auto", "cuda", "cpu"): s["device"] = body["device"]
     if body.get("quality") in core.QUALITY_STEPS: s["quality"] = body["quality"]
-    if body.get("tts_engine") in ("vieneu", "omnivoice"): s["tts_engine"] = body["tts_engine"]
     if body.get("asr_model") in ("large-v3", "small"): s["asr_model"] = body["asr_model"]
     if isinstance(body.get("llm"), dict):
         for k in ("base_url", "model", "api_key"):
