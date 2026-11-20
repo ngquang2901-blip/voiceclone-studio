@@ -181,10 +181,16 @@ function recorder(onFile) {
 
 /* ---------- paywall / health ---------- */
 let paywallOpen = false;
+// The customer sends this id to the seller, who issues a key bound to it.
+function machineIdRow() {
+  const mid = (S.health || {}).machine_id || '…';
+  return h('div', { class: 'mrow', style: 'margin:8px 0' }, h('div', { class: 'grow' }, h('div', { class: 'lbl' }, 'Mã máy (gửi cho người bán để nhận key)'), h('code', null, mid)),
+    btn('Chép', { onclick: async () => { await navigator.clipboard.writeText(mid); toast('Đã chép mã máy', 'ok'); } }));
+}
 function openPaywall() {
   if (paywallOpen) return; paywallOpen = true;
   const key = h('input', { type: 'text', placeholder: 'Dán license key', 'aria-label': 'License key', autocomplete: 'off' });
-  modal('Cần license để dùng tính năng này', [h('p', null, 'Nhập license key để mở khóa. Sau khi kích hoạt, hãy thử lại thao tác của bạn.'), key], close => [
+  modal('Cần license để dùng tính năng này', [h('p', null, 'Nhập license key để mở khóa. Sau khi kích hoạt, hãy thử lại thao tác của bạn.'), machineIdRow(), key], close => [
     btn('Để sau', { onclick: close }),
     btn('Kích hoạt', { cls: 'primary', onclick: async ev => {
       await busy(ev.currentTarget, async () => { await api('/license', { method: 'POST', json: { key: key.value.trim() } }); toast('Đã kích hoạt license', 'ok'); close(); refreshHealth(); });
@@ -644,7 +650,7 @@ PAGES.settings = {
       const hh = S.health || {}, lic = hh.license; const key = h('input', { type: 'text', placeholder: 'Dán license key', 'aria-label': 'License key', autocomplete: 'off' });
       const exp = lic && lic.exp ? fmtDate(lic.exp) : 'Không giới hạn';
       col.append(h('div', { class: 'card' }, lic ? [h('div', { class: 'lbl' }, 'Khách hàng'), h('p', null, lic.sub), h('div', { class: 'lbl', style: 'margin-top:8px' }, 'Tính năng'), h('div', { class: 'chips', style: 'margin:4px 0' }, (lic.features || []).map(f => h('span', { class: 'badge fits' }, f))), h('div', { class: 'lbl', style: 'margin-top:8px' }, 'Hết hạn'), h('p', null, exp)] : h('p', { class: 'muted' }, 'Chưa có license. Nhập key để mở khóa các tính năng.')),
-        h('div', { class: 'card' }, field('License key', key), h('div', { class: 'row' }, btn('Kích hoạt', { cls: 'primary', onclick: e => busy(e.currentTarget, async () => { await api('/license', { method: 'POST', json: { key: key.value.trim() } }); toast('Đã kích hoạt license', 'ok'); await refreshHealth(); draw(); }) }),
+        h('div', { class: 'card' }, machineIdRow(), field('License key', key), h('div', { class: 'row' }, btn('Kích hoạt', { cls: 'primary', onclick: e => busy(e.currentTarget, async () => { await api('/license', { method: 'POST', json: { key: key.value.trim() } }); toast('Đã kích hoạt license', 'ok'); await refreshHealth(); draw(); }) }),
           lic ? btn('Gỡ key', { cls: 'danger', onclick: async e => { if (!await confirmBox('Gỡ license?', 'Các tính năng cần license sẽ bị khóa.')) return; busy(e.currentTarget, async () => { await api('/license', { method: 'DELETE' }); toast('Đã gỡ license'); await refreshHealth(); draw(); }); } }) : null)));
     }
     drawNav(); draw();

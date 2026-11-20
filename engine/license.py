@@ -1,9 +1,10 @@
 """Offline licence keys: <base64url(payload json)>.<base64url(Ed25519 signature)>.
 
-payload = {"sub": "<customer>", "features": ["tts", "clone", "dub", "audiobook"], "exp": <unix seconds or 0>}
+payload = {"sub": "<customer>", "features": ["tts", "clone", "dub", "audiobook"], "exp": <unix seconds or 0>,
+           "mid": "<machine id from machine_id(); absent = any machine>"}
 The engine ships only the public key (public_key.txt beside this file); keys are issued by keytool.py.
 """
-import base64, json, os, time
+import base64, hashlib, json, os, time
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from cryptography.exceptions import InvalidSignature
 
@@ -23,7 +24,22 @@ def load_public_key(path=PUBLIC_KEY_FILE):
     return Ed25519PublicKey.from_public_bytes(b64d(open(path, encoding="ascii").read().strip()))
 
 
-def verify(key: str, public_key=None, now=None) -> dict:
+def machine_id() -> str:
+    """Short, stable id of this computer that the customer sends to the seller (Windows MachineGuid, hashed)."""
+    raw = ""
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Cryptography", 0, winreg.KEY_READ | winreg.KEY_WOW64_64KEY) as k:
+            raw = winreg.QueryValueEx(k, "MachineGuid")[0]
+    except (ImportError, OSError):
+        for f in ("/etc/machine-id", "/var/lib/dbus/machine-id"):
+            if os.path.exists(f): raw = open(f).read().strip(); break
+    raw = raw or str(__import__("uuid").getnode())
+    h = hashlib.sha256(("voiceclone:" + raw).encode()).hexdigest()[:16].upper()
+    return "-".join(h[i:i + 4] for i in range(0, 16, 4))
+
+
+def verify(key: str, public_key=None, now=None, mid=None) -> dict:
     """Returns the payload of a valid key; raises ValueError with a reason a person can read."""
     try:
         body, sig = key.strip().split(".")
@@ -37,5 +53,6 @@ def verify(key: str, public_key=None, now=None) -> dict:
     exp = payload.get("exp") or 0
     if exp and (now or time.time()) > exp:
         raise ValueError("key đã hết hạn")
-    # shortcut: key not bound to a machine (can be shared), add a machine id claim before selling widely.
+    if payload.get("mid") and payload["mid"] != (mid or machine_id()):
+        raise ValueError("key này cấp cho máy khác (mã máy không khớp)")
     return payload

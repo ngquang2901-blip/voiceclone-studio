@@ -91,7 +91,7 @@ def health():
         free, total = torch.cuda.mem_get_info()
         g = {"name": torch.cuda.get_device_name(0), "free_mb": free // 2**20, "total_mb": total // 2**20, **core.vram()}
     dev = core.device(); p = licence()
-    return {"status": "ok", "version": core.VERSION, "device": dev, "gpu": g, "licensed": bool(p), "license": p,
+    return {"status": "ok", "version": core.VERSION, "device": dev, "gpu": g, "licensed": bool(p), "license": p, "machine_id": lic.machine_id(),
             "models_ready": core.models_ready(), **core.loaded(),
             "warning": None if dev == "cuda" else "Đang chạy bằng CPU (không có GPU NVIDIA hoặc đã chọn CPU): tạo giọng chậm hơn nhiều lần"}
 
@@ -686,6 +686,13 @@ def ui_index():
 if os.path.isdir(UI):
     from fastapi.staticfiles import StaticFiles
     app.mount("/ui", StaticFiles(directory=UI), name="ui")
+
+    @app.middleware("http")
+    async def _ui_revalidate(request, call_next):
+        r = await call_next(request)
+        # Without this Chromium heuristically caches the UI and keeps the old app.js after an app update.
+        if request.url.path.startswith("/ui"): r.headers["Cache-Control"] = "no-cache"
+        return r
 
 
 # ---------- exit with the desktop shell ----------

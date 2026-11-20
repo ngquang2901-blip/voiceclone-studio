@@ -27,7 +27,7 @@ python tools/seed_models.py        # (máy dev) hard link model có sẵn của 
 ## License key (máy người bán)
 ```
 python tools/keytool.py init                          # một lần; khoá bí mật ở %USERPROFILE%\.voiceclone-keys (đừng làm mất, đừng chia sẻ)
-python tools/keytool.py issue khach@x.com --days 30   # in key; khách dán vào Cài đặt → License
+python tools/keytool.py issue khach@x.com --machine ABCD-1234-EF56-7890 --days 30   # key chỉ chạy trên máy có mã đó (khách xem ở Cài đặt → License); --any-machine = mọi máy
 ```
 
 ## Kiểm thử

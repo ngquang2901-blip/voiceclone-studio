@@ -41,4 +41,9 @@ for bad, why in [(mk({"sub": "a"}, Ed25519PrivateKey.generate()), "chữ ký"),
                  (mk({"sub": "a", "exp": time.time() - 1}), "hết hạn"), ("rác", "định dạng")]:
     try: lic.verify(bad, pub); raise AssertionError("accepted " + why)
     except ValueError as e: assert why in str(e), (why, e)
+# machine binding: own id passes, another machine's id is refused
+me = lic.machine_id(); assert len(me) == 19 and me == lic.machine_id(), me
+assert lic.verify(mk({"sub": "a", "exp": 0, "mid": me}), pub)["mid"] == me
+try: lic.verify(mk({"sub": "a", "exp": 0, "mid": "0000-0000-0000-0000"}), pub); raise AssertionError("accepted other machine")
+except ValueError as e: assert "máy khác" in str(e), e
 print("selfcheck OK")
