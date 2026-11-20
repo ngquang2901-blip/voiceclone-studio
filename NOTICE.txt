@@ -14,5 +14,5 @@ Components downloaded on first run:
 - PyTorch — BSD-3-Clause; FastAPI, Uvicorn — MIT/BSD; Hugging Face Transformers / Hub — Apache-2.0
 Shipped with the app:
 - uv (Astral) — MIT / Apache-2.0
-- FFmpeg — LGPL-2.1+ / GPL depending on the build shipped in bin/ (release builds must use an LGPL build)
+- FFmpeg 9.0 (BtbN LGPL build, unmodified) — LGPL-2.1+, licence text in bin/FFMPEG-LICENSE.txt; source: https://github.com/FFmpeg/FFmpeg (build scripts: https://github.com/BtbN/FFmpeg-Builds)
 - Electron — MIT; Chromium — BSD-style

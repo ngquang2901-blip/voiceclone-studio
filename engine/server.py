@@ -538,9 +538,18 @@ def _dub_render(job, pid, strategy):
     amap = ["-map", "[a]"] if filt else ["-map", "1:a"]
     if p["has_video"]:
         out = os.path.join(d, "output.mp4")
-        vf = ["-filter:v", f"setpts={factor:.5f}*PTS", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20"] if factor != 1 else ["-c:v", "copy"]
-        core.ffmpeg(*inputs, *(["-filter_complex", filt[0]] if filt else []), "-map", "0:v:0", *amap, *vf, "-c:a", "aac", "-b:a", "192k",
-                    "-movflags", "+faststart", out)
+        fc = ["-filter_complex", filt[0]] if filt else []
+        if factor == 1:
+            core.ffmpeg(*inputs, *fc, "-map", "0:v:0", *amap, "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", out)
+        else:
+            # Shipped ffmpeg is LGPL (no libx264): Windows' own H.264 encoder first, OpenH264 for Windows N editions without it.
+            for enc in (["h264_mf", "-b:v", "6M"], ["libopenh264", "-b:v", "6M"]):
+                try:
+                    core.ffmpeg(*inputs, *fc, "-map", "0:v:0", *amap, "-filter:v", f"setpts={factor:.5f}*PTS", "-c:v", *enc,
+                                "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", out)
+                    break
+                except core.JobError:
+                    if enc[0] == "libopenh264": raise
     else:
         out = os.path.join(d, "output.m4a")
         core.ffmpeg(*inputs, *(["-filter_complex", filt[0]] if filt else []), *amap, "-c:a", "aac", "-b:a", "192k", out)

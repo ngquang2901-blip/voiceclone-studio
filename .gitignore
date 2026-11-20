@@ -8,3 +8,4 @@ __pycache__/
 *.log
 license.key
 *.pem
+build/cache/

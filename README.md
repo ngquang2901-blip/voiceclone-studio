@@ -22,7 +22,7 @@ npm install && node node_modules/electron/install.js     # npm 11 chặn script 
 set VC_PYTHON=<python có sẵn đủ thư viện> & npx electron .  # bỏ VC_PYTHON để thử đúng luồng cài lần đầu
 python tools/seed_models.py        # (máy dev) hard link model có sẵn của VoiceStudio, khỏi tải lại 6 GB
 ```
-Đóng gói: `npm run dist` → `release/VoiceClone-Studio-<ver>-setup.exe` (cần uv, ffmpeg, ffprobe trong PATH; chép vào bin/).
+Đóng gói: `npm run dist` → `release/VoiceClone-Studio-<ver>-setup.exe`. `tools/prepare-bin.mjs` tự tải ffmpeg/ffprobe bản **LGPL** (BtbN, từ chối bản GPL) vào bin/; cần `uv` trong PATH (hoặc đặt `VC_UV_EXE`).
 
 ## License key (máy người bán)
 ```
