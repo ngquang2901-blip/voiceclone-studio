@@ -46,4 +46,7 @@ me = lic.machine_id(); assert len(me) == 19 and me == lic.machine_id(), me
 assert lic.verify(mk({"sub": "a", "exp": 0, "mid": me}), pub)["mid"] == me
 try: lic.verify(mk({"sub": "a", "exp": 0, "mid": "0000-0000-0000-0000"}), pub); raise AssertionError("accepted other machine")
 except ValueError as e: assert "máy khác" in str(e), e
+from textplan import guess_language
+assert guess_language("Trời hôm nay mưa to") == "vi" and guess_language("Cô giáo dặn") == "vi"
+assert guess_language("Hello there") is None and guess_language("Café à la crème, très élégant") is None
 print("selfcheck OK")

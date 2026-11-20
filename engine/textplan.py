@@ -74,3 +74,13 @@ def plan_book(items: list[dict], words_per_second: float = 2.6) -> dict:
         elif "pause_ms" in it: pause_s += it["pause_ms"] / 1000
     voices = sorted({it["voice"] for it in items if "say" in it and it["voice"]})
     return {"chapters": chapters, "words": words, "est_seconds": round(words / words_per_second + pause_s, 1), "voices": voices}
+
+
+# Letters that only Vietnamese uses (French/Spanish share é, à, ô... so those are not enough on their own).
+_VI = set("đăơưạảấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹ")
+
+
+def guess_language(text):
+    """'vi' when the text is clearly Vietnamese, else None (leave it to the model).
+    Without it OmniVoice follows the reference voice's language: an English voice read Vietnamese at 18.8% WER vs 6.2%."""
+    return "vi" if any(c in _VI for c in text.lower()) else None

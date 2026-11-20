@@ -239,6 +239,9 @@ def forget_voice(vid):
 def generate(text, voice=None, instruct=None, language=None, speed=None, duration=None, quality=None):
     """One call to the model. voice = voice dict (clone) or None with instruct (design)."""
     steps = QUALITY_STEPS.get(quality or settings()["quality"], 32)
+    if not language:
+        from textplan import guess_language
+        language = guess_language(text)
     with gpu:  # first import of omnivoice also happens here: two threads importing it at once broke the package import
         m = tts_model()
         from omnivoice.models.omnivoice import OmniVoiceGenerationConfig
