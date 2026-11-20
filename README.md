@@ -28,6 +28,14 @@ python tools/seed_models.py        # (máy dev) hard link model có sẵn của 
 ```
 Đóng gói: `npm run dist` → `release/VoiceClone-Studio-<ver>-setup.exe`. `tools/prepare-bin.mjs` tự tải ffmpeg/ffprobe bản **LGPL** (BtbN, từ chối bản GPL) vào bin/; cần `uv` trong PATH (hoặc đặt `VC_UV_EXE`).
 
+**Ký số bộ cài** (để Windows SmartScreen không cảnh báo "không rõ nhà phát hành"): mua chứng chỉ ký mã (OV/EV, file `.pfx`
+hoặc dịch vụ ký đám mây như Azure Trusted Signing), rồi trước `npm run dist` đặt:
+```
+set CSC_LINK=C:\đường\dẫn\chung-chi.pfx
+set CSC_KEY_PASSWORD=<mật khẩu chứng chỉ>
+```
+electron-builder tự ký `VoiceClone Studio.exe`, `uv.exe`, `ffmpeg.exe`, `ffprobe.exe` và bộ cài. Không có hai biến này thì bản build không được ký (vẫn chạy được, nhưng SmartScreen cảnh báo).
+
 ## License key (máy người bán)
 ```
 python tools/keytool.py init                          # một lần; khoá bí mật ở %USERPROFILE%\.voiceclone-keys (đừng làm mất, đừng chia sẻ)
