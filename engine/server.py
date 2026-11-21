@@ -11,7 +11,7 @@ from fastapi import Body, FastAPI, File, Form, HTTPException, Request, UploadFil
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 
-import core, jobs
+import audioclean, core, jobs
 import license as lic
 from core import D, SR, JobError
 from textplan import fit_plan, parse_book, plan_book
@@ -182,6 +182,9 @@ def make_voice(name, src, kind="clone", ref_text=None, language=None, start=None
         a = core.load_mono(src, start=start, dur=dur or 15)  # the model clones best from 3-15 s of clean speech
         if len(a) < SR * 2: raise JobError("too_short", "Mẫu giọng cần ít nhất 2 giây có tiếng nói")
         peak = float(np.max(np.abs(a)) or 1); a = a / peak * 0.9 if peak > 0.01 else a
+        # dub ("auto") voices come from whatever the video has, so only uploaded clones are refused
+        if kind == "clone" and (why := audioclean.ref_problem(a, SR)): raise JobError("bad_reference", why)
+        a = audioclean.clean(a, SR, peak=0.9)  # breaths/hiss in the reference come back in every sentence the model reads
         ref = os.path.join(d, "ref.wav"); sf.write(ref, a, SR)
         if not ref_text:
             tr = core.transcribe(ref)  # always auto-detect: forcing a language makes Whisper translate instead of transcribe

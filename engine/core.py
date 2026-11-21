@@ -6,7 +6,7 @@ import soundfile as sf
 
 from jobs import JobError
 
-VERSION = "0.2.1"
+VERSION = "0.2.2"
 SR = 24000
 DATA = os.environ.get("VC_DATA") or os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "VoiceCloneStudio")
 D = {k: os.path.join(DATA, k) for k in ("voices", "takes", "transcriptions", "dub", "audiobooks", "designs", "models")}
@@ -252,7 +252,8 @@ def generate(text, voice=None, instruct=None, language=None, speed=None, duratio
         if voice: kw["voice_clone_prompt"] = voice_prompt(voice)
         elif instruct: kw["instruct"] = instruct
         try:
-            return np.asarray(m.generate(text=text, **kw)[0], dtype=np.float32)
+            from audioclean import clean
+            return clean(np.asarray(m.generate(text=text, **kw)[0], dtype=np.float32), SR)
         except ValueError as e:  # bad instruct items come back as ValueError with the valid list
             raise JobError("bad_request", str(e).split("\n")[0])
         except RuntimeError as e:

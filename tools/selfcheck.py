@@ -49,4 +49,20 @@ except ValueError as e: assert "máy khác" in str(e), e
 from textplan import guess_language
 assert guess_language("Trời hôm nay mưa to") == "vi" and guess_language("Cô giáo dặn") == "vi"
 assert guess_language("Hello there") is None and guess_language("Café à la crème, très élégant") is None
+# audio cleaning: a breath between two vowels is muted, the vowels survive, length and peak are safe
+import numpy as np
+from audioclean import breaths, clean, ref_problem
+sr = 24000; t = np.arange(int(0.6 * sr)) / sr
+vowel = (0.5 * np.sin(2 * np.pi * 120 * t) + 0.25 * np.sin(2 * np.pi * 240 * t)).astype(np.float32)
+rng = np.random.default_rng(0)
+breath = np.convolve(rng.standard_normal(int(0.3 * sr)), np.ones(3) / 3, "same").astype(np.float32) * 0.15  # ~20 dB under the vowels, like the breaths measured in real references
+x = np.concatenate([vowel, breath, vowel * 1.6])  # second vowel peaks > 1.0
+assert breaths(x, sr), "breath not detected"
+y = clean(x, sr)
+assert len(y) == len(x) and np.abs(y).max() <= 0.95 + 1e-6
+b0, b1 = len(vowel) + int(0.05 * sr), len(vowel) + int(0.25 * sr)
+assert np.sqrt(np.mean(y[b0:b1] ** 2)) < 0.1 * np.sqrt(np.mean(x[b0:b1] ** 2)), "breath not muted"
+assert np.sqrt(np.mean(y[: len(vowel)] ** 2)) > 0.7 * np.sqrt(np.mean(x[: len(vowel)] ** 2)), "vowel lost"  # only the peak cap (0.79x) applies
+crackle = vowel.copy(); crackle[::400] = 0.9
+assert ref_problem(crackle, sr) and ref_problem(np.tile(vowel, 3), sr) is None
 print("selfcheck OK")
