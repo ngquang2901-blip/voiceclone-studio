@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Res
 import audioclean, core, jobs
 import license as lic
 from core import D, SR, JobError
-from textplan import fit_plan, parse_book, plan_book
+from textplan import chunk_text, fit_plan, parse_book, plan_book
 
 app = FastAPI(title="VoiceClone Studio engine", version=core.VERSION)
 # The UI is loaded from file:// in Electron (origin "null"); only this machine can reach 127.0.0.1.
@@ -500,18 +500,26 @@ def _dub_render(job, pid, strategy):
     job.update(0.03, "Đang chuẩn bị giọng…")
     voice = get_voice(p["voice"]) if p["voice"] else _auto_voice(p)
     lang = p["target_lang"]; dur = p["duration"]
-    clips, overflow_total = [], 0.0
-    for i, s in enumerate(lines):
-        job.update(0.05 + 0.8 * i / len(lines), f"Đang lồng câu {i + 1}/{len(lines)}…")
+    texts = [s["translation"] for s in lines]
+    said = core.generate_many(texts, voice, language=lang,
+                              progress=lambda f: job.update(0.05 + 0.55 * f, f"Đang lồng {round(f * len(lines))}/{len(lines)} câu…"))
+    plans, redo = [], []
+    for i, (s, a) in enumerate(zip(lines, said)):
         nxt = lines[i + 1]["start"] if i + 1 < len(lines) else dur
-        a = core.generate(s["translation"], voice, language=lang)
-        natural = len(a) / SR; slot = max(0.3, nxt - s["start"])
+        natural = len(a) / SR
         if strategy == "stretch":
-            plan = {"speed": 1.0, "status": "fits" if natural <= slot else "overflow"}
+            plan = {"speed": 1.0, "status": "fits" if natural <= max(0.3, nxt - s["start"]) else "overflow"}
         else:
             plan = fit_plan(natural, s["start"], nxt, max_speed=1.35 if strategy == "smart_fit" else 1.8)
-            if plan["speed"] > 1:  # re-say it faster with the model instead of time-stretching the audio
-                a = core.generate(s["translation"], voice, language=lang, duration=round(natural / plan["speed"], 2))
+            if plan["speed"] > 1: redo.append((i, round(natural / plan["speed"], 2)))  # re-say faster, not time-stretched
+        plans.append(plan)
+    if redo:  # all too-long lines again in one batched pass, each with its target duration
+        again = core.generate_many([texts[i] for i, _ in redo], voice, language=lang, durations=[d for _, d in redo],
+                                   progress=lambda f: job.update(0.6 + 0.25 * f, f"Đang chỉnh nhịp {len(redo)} câu dài…"))
+        for (i, _), a in zip(redo, again): said[i] = a
+    clips, overflow_total = [], 0.0
+    for i, (s, a, plan) in enumerate(zip(lines, said, plans)):
+        slot = max(0.3, (lines[i + 1]["start"] if i + 1 < len(lines) else dur) - s["start"])
         s["fit"] = plan["status"]
         clips.append((s, a)); overflow_total += max(0.0, len(a) / SR - slot)
     # stretch: slow the whole video so every line fits; others keep the video length
@@ -603,13 +611,24 @@ def _audiobook_job(job, body):
     if not says: raise JobError("empty", "Kịch bản trống")
     voices = {v: get_voice(v) for v in {i["voice"] for i in says}}
     gap = np.zeros(int(SR * int(body.get("paragraph_gap_ms") or 600) / 1000), np.float32)
-    parts, chapters, pos, done = [], [], 0, 0
+    parts, chapters, pos = [], [], 0
     lang = body.get("language")
-    for it in items:
+    # read every paragraph of one voice in batched calls, then lay them out in script order
+    said, done = {}, 0
+    for vk, v in voices.items():
+        mine = [k for k, it in enumerate(items) if it.get("say") and it["voice"] == vk]
+        pieces = [(k, c) for k in mine for c in chunk_text(items[k]["say"])]  # same <=300-char pieces speak() uses
+        base_done = done
+        clips = core.generate_many([c for _, c in pieces], v, language=lang,
+                                   progress=lambda f, b=base_done, n=len(mine): job.update(0.02 + 0.9 * (b + f * n) / len(says), f"Đang đọc câu {b + round(f * n)}/{len(says)}…"))
+        for (k, _), a in zip(pieces, clips): said.setdefault(k, []).append(a)
+        done += len(mine)
+    core.release_cache()
+    join_gap = np.zeros(int(SR * 0.12), np.float32)
+    said = {k: np.concatenate([x for a in v for x in (a, join_gap)][:-1]) for k, v in said.items()}
+    for k, it in enumerate(items):
         if "chapter" in it: chapters.append((pos, it["chapter"])); continue
-        if "say" in it:
-            job.update(0.02 + 0.9 * done / len(says), f"Đang đọc câu {done + 1}/{len(says)}…")
-            a = core.speak(it["say"], voices[it["voice"]], lang); done += 1
+        if "say" in it: a = said.get(k, gap)  # a paragraph of only punctuation reads as a pause
         elif "pause_ms" in it: a = np.zeros(int(SR * it["pause_ms"] / 1000), np.float32)
         else: a = gap
         parts.append(a); pos += len(a)
@@ -709,3 +728,7 @@ def _watch_parent(pid):
 
 if os.environ.get("VC_PARENT_PID", "").isdigit() and os.name == "nt":
     threading.Thread(target=_watch_parent, args=(int(os.environ["VC_PARENT_PID"]),), daemon=True).start()
+
+
+if os.environ.get("VC_WARMUP", "1") == "1":
+    core.warm_up()

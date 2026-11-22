@@ -6,7 +6,7 @@ import soundfile as sf
 
 from jobs import JobError
 
-VERSION = "0.2.3"
+VERSION = "0.2.4"
 SR = 24000
 DATA = os.environ.get("VC_DATA") or os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "VoiceCloneStudio")
 D = {k: os.path.join(DATA, k) for k in ("voices", "takes", "transcriptions", "dub", "audiobooks", "designs", "models")}
@@ -191,8 +191,30 @@ def asr_model():
     global _asr
     if _asr is None:
         from faster_whisper import WhisperModel
-        _asr = WhisperModel(need_model(asr_model_id()), device="cpu", compute_type="int8")  # GPU stays free for TTS
+        path = need_model(asr_model_id())
+        if device() == "cuda":
+            import torch  # CTranslate2 needs cuBLAS/cuDNN 9: use the copies torch already ships
+            os.add_dll_directory(os.path.join(os.path.dirname(torch.__file__), "lib"))
+            try:
+                # 9 s clip: 4.4 s on an RTX 3060 vs 42-57 s on the CPU, same text; ~1.5 GB next to OmniVoice's ~2.4 GB
+                _asr = WhisperModel(path, device="cuda", compute_type="int8_float16"); return _asr
+            except (RuntimeError, ValueError, OSError) as e:  # no usable CUDA for CTranslate2: fall back to the CPU
+                print("Whisper on CPU:", e, flush=True)
+        _asr = WhisperModel(path, device="cpu", compute_type="int8", cpu_threads=os.cpu_count() or 4)
     return _asr
+
+
+def warm_up():
+    """Load the models in the background when the engine starts, so the first click does not wait ~40 s."""
+    def run():
+        try:
+            if model_path("tts"):
+                with gpu: tts_model()
+            if model_path(asr_model_id()):
+                with gpu: asr_model()
+        except Exception as e:  # a failed warm-up only means the first request loads them (and reports the error)
+            print("warm-up:", e, flush=True)
+    threading.Thread(target=run, daemon=True, name="warm-up").start()
 
 
 def unload():
@@ -236,30 +258,48 @@ def forget_voice(vid):
     _prompts.pop(vid, None)
 
 
+BATCH = 4  # measured on a 6 GB RTX 3060: 4 lines per call is 1.9x faster than one at a time (+360 MB); 8 is no faster
+
+
 def generate(text, voice=None, instruct=None, language=None, speed=None, duration=None, quality=None):
-    """One call to the model. voice = voice dict (clone) or None with instruct (design)."""
+    """One line. voice = voice dict (clone) or None with instruct (design)."""
+    return generate_many([text], voice, instruct, language, speed, [duration], quality)[0]
+
+
+def generate_many(texts, voice=None, instruct=None, language=None, speed=None, durations=None, quality=None, progress=None):
+    """Several lines with one voice, BATCH per model call (the reference prompt is shared, so batching saves most
+    of the per-call cost). durations: per-line target seconds or None. Returns cleaned float32 arrays in order."""
+    from textplan import guess_language
+    from audioclean import clean
     steps = QUALITY_STEPS.get(quality or settings()["quality"], 32)
-    if not language:
-        from textplan import guess_language
-        language = guess_language(text)
+    langs = [language or guess_language(t) for t in texts]
+    durations = durations or [None] * len(texts)
+    out, i, size = [], 0, BATCH
     with gpu:  # first import of omnivoice also happens here: two threads importing it at once broke the package import
         m = tts_model()
         from omnivoice.models.omnivoice import OmniVoiceGenerationConfig
         kw = {"generation_config": OmniVoiceGenerationConfig(num_step=steps)}
-        if language: kw["language"] = language
-        if duration: kw["duration"] = duration
-        elif speed and abs(speed - 1) > 0.01: kw["speed"] = speed
         if voice: kw["voice_clone_prompt"] = voice_prompt(voice)
         elif instruct: kw["instruct"] = instruct
-        try:
-            from audioclean import clean
-            return clean(np.asarray(m.generate(text=text, **kw)[0], dtype=np.float32), SR)
-        except ValueError as e:  # bad instruct items come back as ValueError with the valid list
-            raise JobError("bad_request", str(e).split("\n")[0])
-        except RuntimeError as e:
-            if "out of memory" in str(e).lower():
+        if speed and abs(speed - 1) > 0.01 and not any(durations): kw["speed"] = speed
+        while i < len(texts):
+            j = min(len(texts), i + size)
+            part = {"duration": durations[i:j]} if any(durations[i:j]) else {}
+            if any(langs[i:j]): part["language"] = langs[i:j]
+            try:
+                res = m.generate(text=texts[i:j], **kw, **part)
+            except ValueError as e:  # bad instruct items come back as ValueError with the valid list
+                raise JobError("bad_request", str(e).split("\n")[0])
+            except RuntimeError as e:
+                if "out of memory" not in str(e).lower(): raise
+                import torch
+                torch.cuda.empty_cache()
+                if size > 1: size //= 2; continue  # retry this slice smaller
                 unload(); raise JobError("gpu_oom", "GPU hết bộ nhớ. Đóng bớt app dùng GPU hoặc chọn CPU trong Cài đặt rồi thử lại.")
-            raise
+            out += [clean(np.asarray(a, dtype=np.float32), SR) for a in res]
+            i = j
+            if progress: progress(i / len(texts))
+    return out
 
 
 def speak(text, voice, language=None, speed=None, quality=None, progress=None, gap_ms=120):
@@ -267,12 +307,9 @@ def speak(text, voice, language=None, speed=None, quality=None, progress=None, g
     chunks = chunk_text(text)
     if not chunks: raise JobError("empty", "Chưa có chữ để đọc")
     gap = np.zeros(int(SR * gap_ms / 1000), np.float32); parts = []
-    try:
-        for i, c in enumerate(chunks):
-            parts += [generate(c, voice, language=language, speed=speed, quality=quality), gap]
-            if progress: progress((i + 1) / len(chunks))
-    finally:
-        release_cache()
+    try: clips = generate_many(chunks, voice, language=language, speed=speed, quality=quality, progress=progress)
+    finally: release_cache()
+    for c in clips: parts += [c, gap]
     return np.concatenate(parts[:-1])
 
 
