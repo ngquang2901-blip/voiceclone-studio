@@ -224,9 +224,9 @@ const NAV = [['voices', 'Giọng nói', 'voices'], ['speech', 'Đọc văn bản
 function buildRail() {
   const r = $('#rail');
   r.append(h('div', { class: 'logo', 'aria-hidden': 'true' }, icon('wave', 20)));
-  for (const [k, label, ic] of NAV) r.append(h('a', { href: '#/' + k, 'data-k': k, title: label, 'aria-label': label }, icon(ic, 22)));
+  for (const [k, label, ic] of NAV) r.append(h('a', { href: '#/' + k, 'data-k': k }, icon(ic, 22), h('span', null, label)));
   r.append(h('div', { class: 'sp' }), h('div', { id: 'dot', class: 'dot', role: 'img', 'aria-label': 'Trạng thái engine' }),
-    h('a', { href: '#/settings', 'data-k': 'settings', title: 'Cài đặt', 'aria-label': 'Cài đặt' }, icon('gear', 22)));
+    h('a', { href: '#/settings', 'data-k': 'settings' }, icon('gear', 22), h('span', null, 'Cài đặt')));
 }
 function route() {
   const k = (location.hash.match(/^#\/(\w+)/) || [])[1];
@@ -256,15 +256,14 @@ const DESIGN_SAMPLE = 'Xin chào, rất vui được gặp bạn. Đây là gi�
 PAGES.voices = {
   title: 'Giọng nói',
   mount(panel, main) {
-    let filter = 'all', q = '';
+    let q = '';
     const list = h('div', { style: 'display:flex;flex-direction:column;gap:2px' });
     const search = h('input', { type: 'text', placeholder: 'Tìm giọng…', 'aria-label': 'Tìm giọng', oninput: e => { q = e.target.value.toLowerCase(); drawList(); } });
-    const chips = h('div', { class: 'chips' }, [['all', 'Tất cả'], ['clone', 'Clone'], ['design', 'Thiết kế']].map(([k, l]) => h('button', { class: 'chip' + (k === filter ? ' on' : ''), type: 'button', 'data-k': k, onclick: e => { filter = k; chips.querySelectorAll('.chip').forEach(c => c.classList.toggle('on', c.dataset.k === k)); drawList(); } }, l)));
-    panel.append(search, chips, list);
+    panel.append(search, list);
     function drawList() {
-      const vs = S.voices.filter(v => (filter === 'all' || v.kind === filter) && v.name.toLowerCase().includes(q));
+      const vs = S.voices.filter(v => v.name.toLowerCase().includes(q));
       list.replaceChildren(...(vs.length ? vs.map(v => h('button', { class: 'vitem' + (v.id === S.voiceSel ? ' on' : ''), type: 'button', onclick: () => { S.voiceSel = v.id; drawList(); drawMain(); } },
-        h('span', { class: 'avatar' }, initials(v.name)), h('span', { class: 'grow' }, h('div', { class: 'nm' }, v.name), h('div', { class: 'muted small' }, (v.language || '') + (v.seconds ? ' · ' + Math.round(v.seconds) + 's' : ''))), h('span', { class: 'badge' }, v.kind === 'design' ? 'Thiết kế' : 'Clone')))
+        h('span', { class: 'avatar' }, initials(v.name)), h('span', { class: 'grow' }, h('div', { class: 'nm' }, v.name), h('div', { class: 'muted small' }, (v.language || '') + (v.seconds ? ' · ' + Math.round(v.seconds) + 's' : '')))))
         : [h('div', { class: 'empty' }, S.voices.length ? 'Không có giọng phù hợp' : 'Chưa có giọng nào. Hãy clone hoặc thiết kế giọng đầu tiên.')]));
     }
     async function reload(selectId) { await loadVoices(); if (selectId !== undefined) S.voiceSel = selectId; drawList(); drawMain(); }
@@ -310,9 +309,10 @@ PAGES.voices = {
         });
       });
       root.append(h('p', { class: 'page-s' }, 'Dùng 5–15 giây giọng nói rõ, ít tạp âm'),
-        h('div', { class: 'grid2' }, field('Tên giọng', name), field('Ngôn ngữ trong mẫu', lang)),
+        field('Tên giọng', name),
         h('div', { class: 'grid2', style: 'margin-bottom:12px' }, dropzone('Kéo thả hoặc bấm để chọn file (wav, mp3, m4a, mp4)', '.wav,.mp3,.m4a,.mp4,.webm,audio/*,video/mp4', setFile), recorder(setFile)),
-        field('Lời trong mẫu (để trống: tự chép)', refText), save, prog);
+        save, prog,
+        h('details', { class: 'more' }, h('summary', null, 'Tuỳ chọn thêm'), field('Ngôn ngữ trong mẫu', lang), field('Lời trong mẫu (để trống: tự chép)', refText)));
     }
 
     async function designForm(root) {
@@ -371,8 +371,10 @@ PAGES.speech = {
     const result = h('div'); const takesBox = h('div', { style: 'display:flex;flex-direction:column;gap:8px' });
     panel.append(h('h3', { style: 'font-size:14px' }, 'Bản đã tạo'), takesBox);
     main.append(h('div', { class: 'row' }, h('div', { class: 'grow' }, h('h2', { class: 'page-h' }, 'Đọc văn bản'), h('p', { class: 'muted' }, 'Dán văn bản, chọn giọng rồi bấm Tạo giọng đọc.')), cnt), ta, result,
-      h('div', { class: 'bar-bottom' }, h('div', { class: 'field', style: 'width:200px' }, h('label', null, 'Giọng'), voiceSel), h('div', { class: 'field', style: 'width:160px' }, h('label', null, 'Ngôn ngữ'), lang),
-        h('div', { class: 'field', style: 'width:190px' }, h('label', null, 'Tốc độ ', speedL), speed), h('div', { class: 'field', style: 'width:140px' }, h('label', null, 'Chất lượng'), quality), h('span', { class: 'grow' }), gen));
+      h('div', { class: 'bar-bottom' }, h('div', { class: 'field', style: 'width:240px' }, h('label', null, 'Giọng'), voiceSel),
+        h('div', { class: 'field', style: 'width:190px' }, h('label', null, 'Tốc độ ', speedL), speed), h('span', { class: 'grow' }), gen,
+        h('details', { class: 'more', style: 'width:100%;margin:0' }, h('summary', null, 'Tuỳ chọn thêm'),
+          h('div', { class: 'row' }, h('div', { class: 'field', style: 'width:180px' }, h('label', null, 'Ngôn ngữ'), lang), h('div', { class: 'field', style: 'width:160px' }, h('label', null, 'Chất lượng'), quality)))));
     Promise.all([loadVoices(), loadLangs()]).then(([vs, langs]) => {
       voiceSel.replaceChildren(...vs.map(v => h('option', { value: v.id }, v.name)));
       if (!vs.length) voiceSel.append(h('option', { value: '' }, '(chưa có giọng)'));
@@ -442,7 +444,8 @@ PAGES.dub = {
       }));
       body.append(h('div', { class: 'card' }, h('h3', null, h('span', { class: 'step' }, '1'), 'Tải lên & chép lời'),
         dropzone('Chọn hoặc kéo thả video / âm thanh', '.mp4,.mov,.mkv,.webm,.mp3,.wav,.flac,.m4a,video/*,audio/*', f => { file = f; go.disabled = false; }),
-        h('div', { style: 'height:10px' }), field('Ngôn ngữ nói trong file', src), field('Ngôn ngữ muốn lồng sang', tgt), go, holder));
+        h('div', { style: 'height:10px' }), field('Lồng sang tiếng', tgt), go, holder,
+        h('details', { class: 'more' }, h('summary', null, 'Tuỳ chọn thêm'), field('Ngôn ngữ nói trong file', src))));
     }
 
     // ----- main -----

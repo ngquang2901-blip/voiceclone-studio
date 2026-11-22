@@ -6,7 +6,7 @@ import soundfile as sf
 
 from jobs import JobError
 
-VERSION = "0.2.2"
+VERSION = "0.2.3"
 SR = 24000
 DATA = os.environ.get("VC_DATA") or os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "VoiceCloneStudio")
 D = {k: os.path.join(DATA, k) for k in ("voices", "takes", "transcriptions", "dub", "audiobooks", "designs", "models")}
