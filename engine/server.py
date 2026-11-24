@@ -98,7 +98,7 @@ def health():
 
 @app.get("/settings")
 def get_settings():
-    s = core.settings(); llm = s["llm"]
+    s = core.settings(); llm = core.llm_config()
     return {**{k: s[k] for k in ("device", "quality", "asr_model")}, "data_dir": core.DATA,
             "llm": {"base_url": llm["base_url"], "model": llm["model"], "has_key": bool(llm["api_key"])}}
 
@@ -407,13 +407,14 @@ def _dub_prepare(job, p, src):
     p.update(duration=round(info["duration"], 2), has_video=info["has_video"]); save_project(p)
     job.update(0.1, "Đang tách âm thanh…")
     mix = os.path.join(d, "mix.wav"); core.ffmpeg("-i", src, "-vn", "-ac", "2", "-ar", "44100", mix)
+    # sequential on purpose: Demucs is ~5 % of this step (2 min: 6 s vs Whisper), running both at once measured slower
     speech = mix
     if core.model_path("separator"):
         job.update(0.2, "Đang tách giọng nói khỏi nhạc nền…")
         speech = core.separate(mix, d)[0]; p["separated"] = True
     else:
         p["separated"] = False
-    job.update(0.5, "Đang chép lời (lần đầu phải nạp model)…")
+    job.update(0.5, "Đang chép lời…")
     tr = core.transcribe(speech, p["source_lang"] if p["source_lang"] != "auto" else None)
     p["source_lang"] = tr["language"] if p["source_lang"] == "auto" else p["source_lang"]
     p["segments"] = [dict(s, speaker="1", translation="", fit=None) for s in tr["segments"]]
@@ -467,7 +468,8 @@ def _dub_translate(job, pid, engine):
     p = project(pid); segs = p["segments"]
     job.update(0.1, f"Đang dịch {len(segs)} câu…")
     if engine == "llm":
-        out = core.translate_llm([{"text": s["text"], "seconds": s["end"] - s["start"]} for s in segs], p["source_lang"], p["target_lang"])
+        out = core.translate_llm([{"text": s["text"], "seconds": s["end"] - s["start"]} for s in segs], p["source_lang"], p["target_lang"],
+                                 progress=lambda f: job.update(0.1 + 0.85 * f, f"AI đang dịch {round(f * len(segs))}/{len(segs)} câu…"))
     else:
         out = core.translate_argos([s["text"] for s in segs], p["source_lang"], p["target_lang"])
     for s, t in zip(segs, out): s["translation"] = t
@@ -501,22 +503,18 @@ def _dub_render(job, pid, strategy):
     voice = get_voice(p["voice"]) if p["voice"] else _auto_voice(p)
     lang = p["target_lang"]; dur = p["duration"]
     texts = [s["translation"] for s in lines]
-    said = core.generate_many(texts, voice, language=lang,
-                              progress=lambda f: job.update(0.05 + 0.55 * f, f"Đang lồng {round(f * len(lines))}/{len(lines)} câu…"))
-    plans, redo = [], []
-    for i, (s, a) in enumerate(zip(lines, said)):
+    # the model's own length estimate tells which lines run long before any audio exists: they are said faster
+    # in the same single pass (with a target duration) instead of being said twice
+    plans, durations = [], []
+    for i, (s, natural) in enumerate(zip(lines, core.natural_seconds(texts, voice))):
         nxt = lines[i + 1]["start"] if i + 1 < len(lines) else dur
-        natural = len(a) / SR
         if strategy == "stretch":
             plan = {"speed": 1.0, "status": "fits" if natural <= max(0.3, nxt - s["start"]) else "overflow"}
         else:
             plan = fit_plan(natural, s["start"], nxt, max_speed=1.35 if strategy == "smart_fit" else 1.8)
-            if plan["speed"] > 1: redo.append((i, round(natural / plan["speed"], 2)))  # re-say faster, not time-stretched
-        plans.append(plan)
-    if redo:  # all too-long lines again in one batched pass, each with its target duration
-        again = core.generate_many([texts[i] for i, _ in redo], voice, language=lang, durations=[d for _, d in redo],
-                                   progress=lambda f: job.update(0.6 + 0.25 * f, f"Đang chỉnh nhịp {len(redo)} câu dài…"))
-        for (i, _), a in zip(redo, again): said[i] = a
+        plans.append(plan); durations.append(round(natural / plan["speed"] / core.LEN_BIAS, 2) if plan["speed"] > 1 else None)
+    said = core.generate_many(texts, voice, language=lang, durations=durations,
+                              progress=lambda f: job.update(0.05 + 0.8 * f, f"Đang lồng {round(f * len(lines))}/{len(lines)} câu…"))
     clips, overflow_total = [], 0.0
     for i, (s, a, plan) in enumerate(zip(lines, said, plans)):
         slot = max(0.3, (lines[i + 1]["start"] if i + 1 < len(lines) else dur) - s["start"])

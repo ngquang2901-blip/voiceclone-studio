@@ -65,4 +65,12 @@ assert np.sqrt(np.mean(y[b0:b1] ** 2)) < 0.1 * np.sqrt(np.mean(x[b0:b1] ** 2)), 
 assert np.sqrt(np.mean(y[: len(vowel)] ** 2)) > 0.7 * np.sqrt(np.mean(x[: len(vowel)] ** 2)), "vowel lost"  # only the peak cap (0.79x) applies
 crackle = vowel.copy(); crackle[::400] = 0.9
 assert ref_problem(crackle, sr) and ref_problem(np.tile(vowel, 3), sr) is None
+# Whisper words -> one segment per sentence (end punctuation or a 0.8 s pause)
+from types import SimpleNamespace as W
+import core
+ws = [W(word=" Hello", start=0.0, end=0.4), W(word=" there.", start=0.4, end=0.8), W(word=" Next", start=0.9, end=1.2),
+      W(word=" one", start=2.5, end=2.8), W(word=" ends", start=2.8, end=3.1)]
+ss = core.sentences([W(words=ws[:3]), W(words=ws[3:])])
+assert [(x["start"], x["end"], x["text"]) for x in ss] == [(0.0, 0.8, "Hello there."), (0.9, 1.2, "Next"), (2.5, 3.1, "one ends")], ss
+assert [x["id"] for x in ss] == [0, 1, 2] and core.sentences([]) == []
 print("selfcheck OK")

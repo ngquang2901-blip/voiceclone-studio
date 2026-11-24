@@ -6,7 +6,7 @@ import soundfile as sf
 
 from jobs import JobError
 
-VERSION = "0.2.4"
+VERSION = "0.2.5"
 SR = 24000
 DATA = os.environ.get("VC_DATA") or os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "VoiceCloneStudio")
 D = {k: os.path.join(DATA, k) for k in ("voices", "takes", "transcriptions", "dub", "audiobooks", "designs", "models")}
@@ -266,6 +266,18 @@ def generate(text, voice=None, instruct=None, language=None, speed=None, duratio
     return generate_many([text], voice, instruct, language, speed, [duration], quality)[0]
 
 
+LEN_BIAS = 1.07  # real clips (and duration=… requests) came out 4-12 % longer than the model's estimate, 4 lines measured
+
+
+def natural_seconds(texts, voice):
+    """Seconds the model will take for each line at normal speed: its own text-based estimate, no audio made."""
+    with gpu:
+        m = tts_model(); p = voice_prompt(voice)
+        fr = m.audio_tokenizer.config.frame_rate; n = p.ref_audio_tokens.size(-1)
+        # shortcut: private omnivoice helper (same call generate() makes), re-check after upgrading omnivoice
+        return [m._estimate_target_tokens(t, p.ref_text, n) / fr * LEN_BIAS for t in texts]
+
+
 def generate_many(texts, voice=None, instruct=None, language=None, speed=None, durations=None, quality=None, progress=None):
     """Several lines with one voice, BATCH per model call (the reference prompt is shared, so batching saves most
     of the per-call cost). durations: per-line target seconds or None. Returns cleaned float32 arrays in order."""
@@ -327,11 +339,25 @@ def vram():
 
 
 # ---------- ASR ----------
+def sentences(segs):
+    """Whisper segments (with words) -> one segment per sentence: cut at end punctuation, a 0.8 s pause, or a comma past 15 s."""
+    out, cur = [], []
+    words = [w for s in segs for w in (s.words or [])]
+    for i, w in enumerate(words):
+        cur.append(w)
+        gap = words[i + 1].start - w.end if i + 1 < len(words) else 9
+        if re.search(r"[.?!。？！…]$", w.word.strip()) or gap > 0.8 or (w.end - cur[0].start > 15 and w.word.strip().endswith((",", "，"))):
+            out.append({"start": round(float(cur[0].start), 2), "end": round(float(w.end), 2), "text": "".join(x.word for x in cur).strip()}); cur = []
+    return [dict(s, id=i) for i, s in enumerate(o for o in out if o["text"])]
+
+
 def transcribe(path, language=None):
+    from faster_whisper import BatchedInferencePipeline
     audio = load_mono(path, sr=16000)  # ffmpeg decode: faster-whisper 1.2.1's PyAV call breaks on PyAV 19
     with gpu:
-        segs, info = asr_model().transcribe(audio, language=language or None, vad_filter=True)
-        segs = [{"id": i, "start": round(s.start, 2), "end": round(s.end, 2), "text": s.text.strip()} for i, s in enumerate(segs)]
+        # batched decoding of VAD chunks: 2 min of speech 70.5 s -> 5.7 s on an RTX 3060, same text (99.5 %)
+        segs, info = BatchedInferencePipeline(model=asr_model()).transcribe(audio, language=language or None, batch_size=8, word_timestamps=True)
+        segs = sentences(list(segs))
     return {"language": info.language, "text": " ".join(s["text"] for s in segs), "segments": segs, "seconds": round(len(audio) / 16000, 2)}
 
 
@@ -403,21 +429,61 @@ def translate_argos(texts, src, dst):
     return [t.translate(x) if x.strip() else "" for x in texts]
 
 
-def translate_llm(lines, src, dst):
-    """lines = [{"text","seconds"}]; OpenAI-compatible chat API from Settings."""
-    llm = settings()["llm"]
-    if not (llm["base_url"] and llm["model"]): raise JobError("llm_not_configured", "Chưa cài AI dịch. Vào Cài đặt → Dịch bằng AI.")
-    numbered = "\n".join(f"{i + 1}. [{l['seconds']:.1f}s] {l['text']}" for i, l in enumerate(lines))
-    prompt = (f"Translate these {len(lines)} dubbing lines from {LANG_EN.get(src, src)} to {LANG_EN.get(dst, dst)}. "
-              "Each must be speakable in about the given seconds: natural, concise, no notes. "
-              f"Answer ONLY a JSON array of {len(lines)} strings in order.\n\n{numbered}")
+GEMINI_URL, GEMINI_MODEL = "https://generativelanguage.googleapis.com/v1beta/openai", "gemini-3.5-flash"
+CPS = {"zh": 5, "ja": 7, "ko": 7, "th": 12}  # characters a voice says per second; 15 for alphabetic languages
+
+
+def llm_config():
+    """Settings' AI, with Google Gemini filled in when only a Gemini key (AIza…/AQ.…) is given."""
+    llm = dict(settings()["llm"])
+    if llm["api_key"].startswith(("AIza", "AQ.")):
+        llm["base_url"] = llm["base_url"] or GEMINI_URL; llm["model"] = llm["model"] or GEMINI_MODEL
+    return llm
+
+
+def _llm_call(llm, prompt, n):
     body = json.dumps({"model": llm["model"], "temperature": 0.3, "messages": [{"role": "user", "content": prompt}]}).encode()
     url = llm["base_url"].rstrip("/") + ("" if llm["base_url"].rstrip("/").endswith("/chat/completions") else "/chat/completions")
     req = urllib.request.Request(url, body, {"content-type": "application/json", **({"authorization": f"Bearer {llm['api_key']}"} if llm["api_key"] else {})})
-    try: out = json.load(urllib.request.urlopen(req, timeout=180))["choices"][0]["message"]["content"]
-    except Exception as e: raise JobError("llm_failed", f"AI dịch lỗi: {e}")
-    m = re.search(r"\[.*\]", out, re.S)
-    try: arr = json.loads(m.group(0)) if m else None
-    except json.JSONDecodeError: arr = None
-    if not isinstance(arr, list) or len(arr) != len(lines): raise JobError("llm_failed", "AI trả lời sai định dạng, thử lại")
-    return [str(x).strip() for x in arr]
+    for attempt in range(5):  # Gemini answers 429/503 "high demand" often; they clear within seconds
+        try:
+            out = json.load(urllib.request.urlopen(req, timeout=180))["choices"][0]["message"]["content"]
+            m = re.search(r"\[.*\]", out, re.S)
+            try: arr = json.loads(m.group(0)) if m else None
+            except json.JSONDecodeError: arr = None
+            if isinstance(arr, list) and len(arr) == n: return [str(x).strip() for x in arr]
+            why = "AI trả lời sai định dạng"
+        except urllib.error.HTTPError as e:
+            if e.code in (400, 401, 403, 404):
+                raise JobError("llm_failed", f"AI dịch từ chối (HTTP {e.code}): kiểm tra API key / tên model trong Cài đặt")
+            why = f"HTTP {e.code}"
+        except Exception as e:  # timeouts, connection resets
+            why = str(e)
+        time.sleep(3 * 2 ** attempt)
+    raise JobError("llm_failed", f"AI dịch lỗi sau 5 lần thử: {why}")
+
+
+def translate_llm(lines, src, dst, progress=None):
+    """lines = [{"text","seconds"}]; OpenAI-compatible chat API from Settings. 60 lines per request, 4 at once."""
+    from concurrent.futures import ThreadPoolExecutor
+    llm = llm_config()
+    if not (llm["base_url"] and llm["model"]): raise JobError("llm_not_configured", "Chưa cài AI dịch. Vào Cài đặt → Dịch bằng AI.")
+    cps = CPS.get(dst, 15)
+
+    def one(start):
+        part = lines[start:start + 60]
+        before = " ".join(l["text"] for l in lines[max(0, start - 3):start])
+        numbered = "\n".join(f"{i + 1}. [{l['seconds']:.1f}s, max {max(4, round(l['seconds'] * cps))} chars] {l['text']}" for i, l in enumerate(part))
+        prompt = (f"You translate a video's dubbing script from {LANG_EN.get(src, src)} to {LANG_EN.get(dst, dst)}. "
+                  "Each line is spoken in the given seconds, so keep it within its character limit: natural spoken words, "
+                  "same meaning, shorter wording when needed, no notes or brackets. Keep names, numbers and terms consistent. "
+                  + (f"The script just before: \"{before}\". " if before else "")
+                  + f"Answer ONLY a JSON array of {len(part)} strings, one per line, in order.\n\n{numbered}")
+        return _llm_call(llm, prompt, len(part))
+
+    starts = list(range(0, len(lines), 60)); out = {}
+    with ThreadPoolExecutor(4) as ex:
+        for k, (st, arr) in enumerate(zip(starts, ex.map(one, starts))):
+            out[st] = arr
+            if progress: progress((k + 1) / len(starts))
+    return [t for st in starts for t in out[st]]

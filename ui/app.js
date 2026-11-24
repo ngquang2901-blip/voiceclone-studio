@@ -42,6 +42,7 @@ const P = {
 const icon = (n, size) => { const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('viewBox', '0 0 24 24'); s.setAttribute('class', 'ic'); s.setAttribute('aria-hidden', 'true'); if (size) { s.style.width = s.style.height = size + 'px'; } s.innerHTML = P[n] || ''; return s; }; // P is a static, trusted table
 const btn = (label, o = {}) => h('button', { class: 'btn ' + (o.cls || ''), type: 'button', 'aria-label': o.aria || label || null, title: o.title || null, onclick: o.onclick, disabled: o.disabled }, o.icon ? icon(o.icon) : null, label);
 const initials = n => (String(n || '?').trim().split(/\s+/).slice(0, 2).map(w => w[0]).join('') || '?').toUpperCase();
+const srtT = s => { const ms = Math.round(Math.max(0, +s || 0) * 1000), p = (n, w = 2) => String(n).padStart(w, '0'); return p(Math.floor(ms / 3600000)) + ':' + p(Math.floor(ms / 60000) % 60) + ':' + p(Math.floor(ms / 1000) % 60) + ',' + p(ms % 1000, 3); };
 const fmtT = s => { s = Math.max(0, +s || 0); const m = Math.floor(s / 60); return m + ':' + (s % 60).toFixed(1).padStart(4, '0'); };
 const fmtDur = s => { s = Math.round(+s || 0); const m = Math.floor(s / 60); return m + ':' + String(s % 60).padStart(2, '0'); };
 const fmtSize = mb => mb >= 1024 ? (mb / 1024).toFixed(1) + ' GB' : Math.round(mb) + ' MB';
@@ -220,7 +221,7 @@ function renderTopRight() {
 
 /* ---------- router ---------- */
 const PAGES = {};
-const NAV = [['voices', 'Giọng nói', 'voices'], ['speech', 'Đọc văn bản', 'speech'], ['dub', 'Lồng tiếng', 'dub'], ['audiobook', 'Sách nói', 'book'], ['transcribe', 'Chép lời', 'mic']];
+const NAV = [['voices', 'Giọng nói', 'voices'], ['speech', 'Đọc văn bản', 'speech'], ['dub', 'Lồng tiếng', 'dub'], ['audiobook', 'Sách nói', 'book']];
 function buildRail() {
   const r = $('#rail');
   r.append(h('div', { class: 'logo', 'aria-hidden': 'true' }, icon('wave', 20)));
@@ -240,19 +241,6 @@ function route() {
 }
 
 /* ================= Giọng nói ================= */
-const GROUPS = [
-  { key: 'gender', label: 'Giới tính', o: [['male', 'Nam'], ['female', 'Nữ']] },
-  { key: 'age', label: 'Độ tuổi', o: [['child', 'Trẻ em'], ['teenager', 'Thiếu niên'], ['young adult', 'Thanh niên'], ['middle-aged', 'Trung niên'], ['elderly', 'Cao tuổi']] },
-  { key: 'pitch', label: 'Cao độ', o: [['very low pitch', 'Rất trầm'], ['low pitch', 'Trầm'], ['moderate pitch', 'Vừa'], ['high pitch', 'Cao'], ['very high pitch', 'Rất cao']] },
-  { key: 'style', label: 'Phong cách', o: [['whisper', 'Thì thầm']] },
-  { key: 'accent', label: 'Giọng vùng', o: [['american accent', 'Mỹ'], ['australian accent', 'Úc'], ['british accent', 'Anh'], ['canadian accent', 'Canada'], ['chinese accent', 'Trung Quốc'], ['indian accent', 'Ấn Độ'], ['japanese accent', 'Nhật'], ['korean accent', 'Hàn'], ['portuguese accent', 'Bồ Đào Nha'], ['russian accent', 'Nga']] },
-];
-const PRESETS = [
-  ['Người dẫn chuyện', ['male', 'middle-aged', 'low pitch']], ['Phát thanh viên', ['female', 'young adult', 'moderate pitch']],
-  ['Kể chuyện', ['male', 'elderly', 'low pitch']], ['Trẻ em', ['child', 'high pitch']], ['Thì thầm', ['female', 'whisper']],
-];
-const DESIGN_SAMPLE = 'Xin chào, rất vui được gặp bạn. Đây là giọng nói tôi vừa được thiết kế, bạn thấy thế nào?';
-
 PAGES.voices = {
   title: 'Giọng nói',
   mount(panel, main) {
@@ -264,7 +252,7 @@ PAGES.voices = {
       const vs = S.voices.filter(v => v.name.toLowerCase().includes(q));
       list.replaceChildren(...(vs.length ? vs.map(v => h('button', { class: 'vitem' + (v.id === S.voiceSel ? ' on' : ''), type: 'button', onclick: () => { S.voiceSel = v.id; drawList(); drawMain(); } },
         h('span', { class: 'avatar' }, initials(v.name)), h('span', { class: 'grow' }, h('div', { class: 'nm' }, v.name), h('div', { class: 'muted small' }, (v.language || '') + (v.seconds ? ' · ' + Math.round(v.seconds) + 's' : '')))))
-        : [h('div', { class: 'empty' }, S.voices.length ? 'Không có giọng phù hợp' : 'Chưa có giọng nào. Hãy clone hoặc thiết kế giọng đầu tiên.')]));
+        : [h('div', { class: 'empty' }, S.voices.length ? 'Không có giọng phù hợp' : 'Chưa có giọng nào. Hãy clone giọng đầu tiên.')]));
     }
     async function reload(selectId) { await loadVoices(); if (selectId !== undefined) S.voiceSel = selectId; drawList(); drawMain(); }
     function drawMain() { main.replaceChildren(); const v = S.voices.find(x => x.id === S.voiceSel); if (v) detail(v); else tabsView(); }
@@ -287,10 +275,7 @@ PAGES.voices = {
     }
 
     function tabsView() {
-      const wrap = h('div', { class: 'setcol' }), body = h('div');
-      const tabs = h('div', { class: 'tabs', role: 'tablist' }, [['clone', 'Clone giọng'], ['design', 'Thiết kế giọng']].map(([k, l]) => h('button', { type: 'button', role: 'tab', 'data-k': k, class: k === S.voiceTab ? 'on' : '', onclick: () => { S.voiceTab = k; tabs.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.k === k)); show(); } }, l)));
-      const show = () => { body.replaceChildren(); (S.voiceTab === 'clone' ? cloneForm : designForm)(body); };
-      wrap.append(tabs, body); main.append(wrap); show();
+      const body = h('div'); main.append(h('div', { class: 'setcol' }, h('h2', { class: 'page-h' }, 'Clone giọng'), body)); cloneForm(body);
     }
 
     async function cloneForm(root) {
@@ -315,41 +300,6 @@ PAGES.voices = {
         h('details', { class: 'more' }, h('summary', null, 'Tuỳ chọn thêm'), field('Ngôn ngữ trong mẫu', lang), field('Lời trong mẫu (để trống: tự chép)', refText)));
     }
 
-    async function designForm(root) {
-      const langs = await loadLangs(); const pick = {}; let designId = null;
-      const script = h('textarea', { rows: '3', 'aria-label': 'Lời thoại', value: DESIGN_SAMPLE });
-      const lang = langSelect(langs.tts, 'vi');
-      const name = h('input', { type: 'text', placeholder: 'Tên giọng', 'aria-label': 'Tên giọng' });
-      const player = h('audio', { controls: true, hidden: true });
-      const saveB = btn('Lưu thành giọng', { cls: 'primary', disabled: true });
-      const preview = btn('Nghe thử', { icon: 'play' });
-      const groups = GROUPS.map(g => {
-        const row = h('div', { class: 'chips' }, g.o.map(([val, lab]) => h('button', { class: 'chip', type: 'button', 'data-v': val, 'aria-pressed': 'false', onclick: () => { pick[g.key] = pick[g.key] === val ? undefined : val; sync(); } }, lab)));
-        return h('div', { class: 'field' }, h('span', { class: 'lbl' }, g.label), row);
-      });
-      const instruct = () => GROUPS.map(g => pick[g.key]).filter(Boolean).join(', ');
-      function sync() { root.querySelectorAll('.chip[data-v]').forEach(c => { const on = Object.values(pick).includes(c.dataset.v); c.classList.toggle('on', on); c.setAttribute('aria-pressed', on); }); designId = null; saveB.disabled = true; }
-      const presets = h('div', { class: 'chips' }, PRESETS.map(([l, items]) => h('button', { class: 'chip', type: 'button', onclick: () => { for (const g of GROUPS) pick[g.key] = undefined; for (const it of items) { const g = GROUPS.find(g => g.o.some(o => o[0] === it)); pick[g.key] = it; } sync(); } }, l)));
-      preview.addEventListener('click', () => {
-        const ins = instruct(); if (!ins) { toast('Hãy chọn ít nhất một đặc điểm giọng', 'err'); return; }
-        if (!script.value.trim()) { toast('Hãy nhập lời thoại', 'err'); return; }
-        busy(preview, async () => {
-          preview.lastChild.textContent = ' Đang tạo…';
-          try {
-            const r = await api('/design/preview', { method: 'POST', json: { instruct: ins, text: script.value.trim(), language: lang.value }, raw: true });
-            designId = r.headers.get('x-design-id'); const blob = await r.blob();
-            player.src = URL.createObjectURL(blob); player.hidden = false; player.play().catch(() => {}); saveB.disabled = !designId;
-          } finally { preview.lastChild.textContent = 'Nghe thử'; }
-        });
-      });
-      saveB.addEventListener('click', () => {
-        if (!name.value.trim()) { toast('Hãy đặt tên cho giọng', 'err'); return; }
-        busy(saveB, async () => { const v = await api('/design/save', { method: 'POST', json: { design_id: designId, name: name.value.trim() } }); toast('Đã lưu giọng "' + v.name + '"', 'ok'); await reload(v.id); });
-      });
-      root.append(h('div', { class: 'field' }, h('span', { class: 'lbl' }, 'Điểm bắt đầu'), presets), ...groups, field('Lời thoại nghe thử', script),
-        h('div', { class: 'row wrap', style: 'margin-bottom:12px' }, h('div', { style: 'width:220px' }, field('Ngôn ngữ', lang)), preview), player,
-        h('div', { class: 'row', style: 'margin-top:12px;align-items:flex-end' }, h('div', { class: 'grow' }, field('Tên giọng', name)), h('div', { style: 'margin-bottom:10px' }, saveB)));
-    }
     loadVoices().then(() => { drawList(); drawMain(); });
   },
 };
@@ -452,13 +402,16 @@ PAGES.dub = {
     function open(p) { S.dub = p; drawMain(); }
     function drawMain() {
       main.replaceChildren(); const p = S.dub;
-      if (!p) { main.append(h('div', { class: 'empty', style: 'margin-top:80px' }, icon('dub', 40), h('h2', { class: 'page-h', style: 'margin-top:10px' }, 'Xưởng lồng tiếng video'), h('p', null, 'Tải một video ở bảng bên trái hoặc mở một dự án có sẵn.'))); return; }
+      if (!p) { main.append(h('div', { class: 'empty', style: 'margin-top:80px' }, icon('dub', 40), h('h2', { class: 'page-h', style: 'margin-top:10px' }, 'Xưởng lồng tiếng video'), h('p', null, 'Tải video hoặc âm thanh ở bảng bên trái để chép lời, dịch và lồng tiếng.'))); return; }
       const warnBox = h('div'), actProg = h('div'); const taMap = new Map();
       const media = (cls, src, hasVideo) => hasVideo ? h('video', { controls: true, src, 'aria-label': cls }) : h('audio', { controls: true, src, 'aria-label': cls });
       const outBox = h('div', { class: 'card' }, h('div', { class: 'lbl', style: 'margin-bottom:6px' }, 'Bản lồng tiếng'));
       if (p.output) outBox.append(media('Bản lồng tiếng', API + p.output, p.has_video), h('div', { style: 'margin-top:8px' }, h('a', { class: 'btn sm', href: API + p.output, download: p.name + (p.has_video ? '.mp4' : '.m4a') }, icon('dl'), 'Tải xuống')));
       else outBox.append(h('div', { class: 'empty small' }, 'Chưa có. Bấm "Lồng tiếng" bên dưới.'));
-      const engine = h('select', { 'aria-label': 'Công cụ dịch' }, h('option', { value: 'argos' }, 'Argos (offline)'), h('option', { value: 'llm' }, 'LLM (AI)'));
+      const engine = h('select', { 'aria-label': 'Công cụ dịch' }, h('option', { value: 'llm' }, 'AI (chất lượng cao)'), h('option', { value: 'argos' }, 'Argos (offline)'));
+      engine.value = S.settings && S.settings.llm && S.settings.llm.has_key ? 'llm' : 'argos';
+      const srt = key => p.segments.filter(s => (s[key] || '').trim()).map((s, i) => (i + 1) + '\n' + srtT(s.start) + ' --> ' + srtT(s.end) + '\n' + s[key].trim() + '\n').join('\n');
+      const subBtn = (key, label) => btn(label, { icon: 'dl', cls: 'sm', onclick: () => { const t = srt(key); if (!t) { toast('Chưa có câu nào', 'err'); return; } const a = h('a', { href: URL.createObjectURL(new Blob([t], { type: 'text/plain' })), download: p.name + (key === 'text' ? '.goc' : '.' + p.target_lang) + '.srt' }); a.click(); } });
       const voice = voiceSelect(p.voice || '', ['', 'Giữ giọng người nói gốc']); voice.value = p.voice || '';
       const bg = h('input', { type: 'checkbox', checked: !!p.keep_background, 'aria-label': 'Giữ nhạc nền' });
       const strat = h('select', { 'aria-label': 'Cách khớp thời lượng' }, STRATS.map(([v, l]) => h('option', { value: v }, l)));
@@ -492,6 +445,8 @@ PAGES.dub = {
           h('div', { style: 'width:170px' }, field('Công cụ dịch', engine)), tbtn, h('span', { style: 'width:12px' }),
           h('div', { style: 'width:200px' }, field('Giọng lồng', voice)), h('div', { style: 'width:200px' }, field('Cách khớp thời lượng', strat)),
           h('label', { class: 'switch', style: 'margin-bottom:14px' }, bg, 'Giữ nhạc nền'), h('span', { class: 'grow' }), h('div', { class: 'row', style: 'margin-bottom:10px' }, sbtn, rbtn)), actProg, warnBox),
+        h('div', { class: 'row wrap' }, h('span', { class: 'muted small' }, 'Phụ đề:'), subBtn('text', 'Lời gốc (.srt)'), subBtn('translation', 'Bản dịch (.srt)'),
+          btn('Chép lời gốc', { icon: 'copy', cls: 'sm', onclick: () => navigator.clipboard.writeText(p.segments.map(s => s.text).join('\n')).then(() => toast('Đã chép vào bộ nhớ tạm', 'ok'), () => toast('Không chép được', 'err')) })),
         h('div', { class: 'card', style: 'padding:6px' }, h('table', { class: 'seg' }, h('thead', null, h('tr', null, h('th', null, 'Thời gian'), h('th', null, 'Lời gốc'), h('th', null, 'Bản dịch'), h('th', null, 'Khớp'))), h('tbody', null, rows)))));
     }
     drawPanel(); drawMain();
@@ -570,42 +525,6 @@ PAGES.audiobook = {
   },
 };
 
-/* ================= Chép lời ================= */
-PAGES.transcribe = {
-  title: 'Chép lời',
-  mount(panel, main) {
-    let curFile = null;
-    const hist = h('div', { style: 'display:flex;flex-direction:column;gap:6px' }); panel.append(h('h3', { style: 'font-size:14px' }, 'Lịch sử'), hist);
-    const lang = h('select', { 'aria-label': 'Ngôn ngữ trong file' }); const view = h('div'); const holder = h('div');
-    const go = btn('Chép lời', { cls: 'primary', disabled: true });
-    const pickFile = f => { curFile = f; go.disabled = false; };
-    loadLangs().then(l => lang.append(h('option', { value: '' }, 'Tự nhận diện'), ...l.tts.map(x => h('option', { value: x.code }, x.name))));
-    main.append(h('div', { class: 'setcol', style: 'max-width:900px' }, h('div', null, h('h2', { class: 'page-h' }, 'Chép lời'), h('p', { class: 'muted' }, 'Tải file âm thanh/video hoặc ghi âm để chuyển thành văn bản có mốc thời gian.')),
-      h('div', { class: 'grid2' }, dropzone('Kéo thả hoặc bấm để chọn file', '.wav,.mp3,.m4a,.mp4,.webm,.flac,.ogg,audio/*,video/*', pickFile), recorder(pickFile)),
-      h('div', { class: 'row', style: 'align-items:flex-end' }, h('div', { style: 'width:220px' }, field('Ngôn ngữ', lang)), h('div', { style: 'margin-bottom:10px' }, go)), holder, view));
-    go.addEventListener('click', () => busy(go, async () => {
-      const fd = new FormData(); fd.append('file', curFile, curFile.name); if (lang.value) fd.append('language', lang.value);
-      const r = await withProgress(holder, p => runJob('/transcriptions', { method: 'POST', form: fd }, p));
-      S.tUrls[r.id] = URL.createObjectURL(curFile); show(r); loadHist(); toast('Đã chép lời xong', 'ok');
-    }));
-    function show(r) {
-      const au = S.tUrls[r.id] ? h('audio', { controls: true, src: S.tUrls[r.id], 'aria-label': 'File gốc' }) : null;
-      const ex = f => h('a', { class: 'btn sm', href: API + '/transcriptions/' + encodeURIComponent(r.id) + '/export?format=' + f, download: (r.file_name || 'loi') + '.' + f }, icon('dl'), f.toUpperCase());
-      view.replaceChildren(h('div', { class: 'card' }, h('div', { class: 'row wrap', style: 'margin-bottom:10px' }, h('div', { class: 'grow' }, h('div', { style: 'font-weight:600;word-break:break-all' }, r.file_name), h('div', { class: 'muted small' }, (r.language || '') + ' · ' + fmtDur(r.seconds))),
-        btn('Chép văn bản', { icon: 'copy', cls: 'sm', onclick: () => navigator.clipboard.writeText(r.text).then(() => toast('Đã chép vào bộ nhớ tạm', 'ok'), () => toast('Không chép được', 'err')) }), ex('txt'), ex('srt'), ex('vtt')),
-        au, h('div', { class: 'seglist', style: 'margin-top:10px' }, (r.segments || []).map(s => h('button', { type: 'button', title: 'Nhảy tới đoạn này', onclick: () => { if (au) { au.currentTime = s.start; au.play().catch(() => {}); } } }, h('span', { class: 'tm' }, fmtT(s.start)), h('span', null, s.text))))));
-    }
-    async function loadHist() {
-      let items = []; try { items = firstArray(await api('/transcriptions'), 'items'); } catch (e) { return; }
-      hist.replaceChildren(...(items.length ? items.map(i => h('div', { class: 'vitem' }, h('button', { class: 'grow vitem', type: 'button', style: 'padding:0;flex-direction:column;align-items:flex-start;gap:0', onclick: async () => { try { show(await api('/transcriptions/' + encodeURIComponent(i.id))); } catch (e) { toast(e.message, 'err'); } } },
-        h('div', { class: 'nm', style: 'max-width:200px' }, i.file_name), h('div', { class: 'muted small', style: 'max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap' }, i.text || '')),
-        btn('', { icon: 'trash', cls: 'icon sm danger', aria: 'Xóa', onclick: async () => { if (!await confirmBox('Xóa bản chép lời?', '"' + i.file_name + '" sẽ bị xóa.')) return; try { await api('/transcriptions/' + encodeURIComponent(i.id), { method: 'DELETE' }); view.replaceChildren(); loadHist(); } catch (e) { toast(e.message, 'err'); } } })))
-        : [h('div', { class: 'empty small' }, 'Chưa có bản chép lời nào')]));
-    }
-    loadHist();
-  },
-};
-
 /* ================= Cài đặt ================= */
 const SECS = [['general', 'Chung'], ['models', 'Model'], ['ai', 'Dịch bằng AI'], ['license', 'License'], ['storage', 'Bộ nhớ'], ['about', 'Giới thiệu']];
 const ATTR = 'Built with Higgs Materials licensed from Boson AI USA, Inc., Copyright Boson AI USA, Inc., All Rights Reserved and Meta Llama 3 licensed under the Meta Llama 3 Community License, Copyright Meta Platforms, Inc., All Right Reserved. based on Meta Llama 3';
@@ -628,8 +547,8 @@ PAGES.settings = {
       if (sec === 'models') await modelsSection();
       if (sec === 'ai') {
         const llm = st.llm || {}; const url = h('input', { type: 'text', value: llm.base_url || '', placeholder: 'https://api.openai.com/v1' }), mdl = h('input', { type: 'text', value: llm.model || '', placeholder: 'tên model' }), key = h('input', { type: 'password', autocomplete: 'off', placeholder: llm.has_key ? 'Đã lưu khóa (nhập để thay)' : 'API key' });
-        col.append(h('div', { class: 'card' }, h('p', { class: 'muted', style: 'margin-bottom:10px' }, 'Dùng cho dịch tự động bằng AI (API tương thích OpenAI). Khóa chỉ lưu trên máy này.'), field('Base URL', url), field('Model', mdl), field('API key', key),
-          h('div', { class: 'row' }, btn('Lưu', { cls: 'primary', onclick: e => busy(e.currentTarget, async () => { const l = { base_url: url.value.trim(), model: mdl.value.trim() }; if (key.value) l.api_key = key.value; await patch({ llm: l }); draw(); }) }), h('span', { class: 'muted small' }, llm.has_key ? '✓ Đã có API key' : 'Chưa có API key'))));
+        col.append(h('div', { class: 'card' }, h('p', { class: 'muted', style: 'margin-bottom:10px' }, 'Dùng cho dịch tự động bằng AI. Chỉ cần dán API key Google Gemini (aistudio.google.com) rồi Lưu; dịch vụ khác tương thích OpenAI thì điền thêm Base URL và Model. Khóa chỉ lưu trên máy này.'), field('Base URL', url), field('Model', mdl), field('API key', key),
+          h('div', { class: 'row' }, btn('Lưu', { cls: 'primary', onclick: e => busy(e.currentTarget, async () => { const l = { base_url: url.value.trim(), model: mdl.value.trim() }; if (key.value) l.api_key = key.value; await patch({ llm: l }); S.settings = await api('/settings'); draw(); }) }), h('span', { class: 'muted small' }, llm.has_key ? '✓ Đã có API key' : 'Chưa có API key'))));
       }
       if (sec === 'license') licenseSection();
       if (sec === 'storage') col.append(h('div', { class: 'card' }, h('div', { class: 'lbl' }, 'Thư mục dữ liệu'), h('p', { style: 'word-break:break-all;margin:4px 0 12px' }, st.data_dir || ''),

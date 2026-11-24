@@ -1,6 +1,6 @@
 # VoiceClone Studio
 
-App desktop chạy hoàn toàn trên máy: **clone giọng**, **thiết kế giọng bằng mô tả**, **đọc văn bản**, **lồng tiếng video** (tách nhạc nền, dịch offline hoặc bằng AI), **sách nói** (m4b có chương), **chép lời** (TXT/SRT/VTT). Có khoá trả phí bằng license key.
+App desktop chạy hoàn toàn trên máy: **clone giọng**, **đọc văn bản**, **lồng tiếng video** (tách nhạc nền, chép lời + phụ đề SRT, dịch bằng AI — chỉ cần dán API key Google Gemini trong Cài đặt → Dịch bằng AI — hoặc Argos offline), **sách nói** (m4b có chương). Thiết kế giọng và trang Chép lời riêng đã ẩn khỏi giao diện (API `/design/*`, `/transcriptions` vẫn còn). Có khoá trả phí bằng license key.
 Bản dựng lại (clean-room) theo hành vi đo được của VoiceStudio 0.5.8: không dùng code VoiceStudio (AGPL).
 
 ## Cách hoạt động
