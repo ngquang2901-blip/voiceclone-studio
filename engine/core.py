@@ -6,7 +6,7 @@ import soundfile as sf
 
 from jobs import JobError
 
-VERSION = "0.2.6"
+VERSION = "0.2.7"
 SR = 24000
 DATA = os.environ.get("VC_DATA") or os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "VoiceCloneStudio")
 D = {k: os.path.join(DATA, k) for k in ("voices", "takes", "transcriptions", "dub", "audiobooks", "designs", "models")}
@@ -429,44 +429,78 @@ def translate_argos(texts, src, dst):
     return [t.translate(x) if x.strip() else "" for x in texts]
 
 
-GEMINI_URL, GEMINI_MODEL = "https://generativelanguage.googleapis.com/v1beta/openai", "gemini-3.5-flash"
+# Key prefix -> OpenAI-compatible endpoint. Most specific prefix first; "sk-" is shared by OpenAI and DeepSeek,
+# so every matching provider is tried in order and the first that lists models wins.
+PROVIDERS = [  # (name, key prefixes, base url, preferred model keywords)
+    ("Google Gemini", ("AIza", "AQ."), "https://generativelanguage.googleapis.com/v1beta/openai", ("gemini-3.5-flash", "flash")),
+    ("Anthropic Claude", ("sk-ant-",), "https://api.anthropic.com/v1", ("sonnet", "haiku")),
+    ("OpenRouter", ("sk-or-",), "https://openrouter.ai/api/v1", ("gemini", "gpt", "claude", "deepseek")),
+    ("OpenAI", ("sk-proj-", "sk-svcacct-", "sk-"), "https://api.openai.com/v1", ("gpt-5-mini", "gpt-4.1-mini", "mini", "gpt")),
+    ("DeepSeek", ("sk-",), "https://api.deepseek.com/v1", ("deepseek-chat",)),
+    ("xAI Grok", ("xai-",), "https://api.x.ai/v1", ("mini", "grok")),
+    ("Groq", ("gsk_",), "https://api.groq.com/openai/v1", ("llama", "gpt")),
+]
 CPS = {"zh": 5, "ja": 7, "ko": 7, "th": 12}  # characters a voice says per second; 15 for alphabetic languages
 
 
+def providers_for(key):
+    return [p for p in PROVIDERS if key.startswith(p[1])]
+
+
+def provider_of(base):
+    return next((p for p in PROVIDERS if p[2] == (base or "").rstrip("/")), None)
+
+
+def llm_headers(key, base):
+    h = {"content-type": "application/json", "authorization": f"Bearer {key}"} if key else {"content-type": "application/json"}
+    if "anthropic.com" in base: h.update({"x-api-key": key, "anthropic-version": "2023-06-01"})  # its /models wants these
+    return h
+
+
 def llm_config():
-    """Settings' AI, with Google Gemini filled in when only a Gemini key (AIza…/AQ.…) is given."""
+    """Settings' AI; base URL filled from the key's provider when none was saved."""
     llm = dict(settings()["llm"])
-    if llm["api_key"].startswith(("AIza", "AQ.")):
-        llm["base_url"] = llm["base_url"] or GEMINI_URL; llm["model"] = llm["model"] or GEMINI_MODEL
+    if not llm["base_url"] and (cands := providers_for(llm["api_key"])): llm["base_url"] = cands[0][2]
     return llm
 
 
-NOT_CHAT = re.compile(r"tts|image|embed|audio|live|veo|imagen|lyria|banana|whisper|dall-e|moderation|transcribe|realtime|search|customtools|aqa|robotics|computer-use|antigravity|genie|decision", re.I)
+NOT_CHAT = re.compile(r"tts|image|embed|audio|live|veo|imagen|lyria|banana|whisper|dall-e|moderation|transcribe|realtime|search|customtools|aqa"
+                      r"|robotics|computer-use|antigravity|genie|decision|davinci|babbage|sora|guard|rerank", re.I)
 
 
 def llm_models(api_key=None, base_url=None):
-    """Chat models the given (or saved) key can use, recommended first. GET {base}/models of the OpenAI-compatible API."""
+    """Chat models the given (or saved) key can use, recommended first. base_url given -> only that endpoint,
+    else the key's provider(s) by prefix (a new key ignores the saved URL). GET {base}/models, OpenAI-compatible."""
     llm = settings()["llm"]
-    key = (api_key or llm["api_key"]).strip()
-    base = (base_url or "").strip() or llm["base_url"] or (GEMINI_URL if key.startswith(("AIza", "AQ.")) else "")
+    key = (api_key or llm["api_key"]).strip(); base_url = (base_url or "").strip().rstrip("/")
     if not key: raise JobError("bad_request", "Hãy dán API key")
-    if not base: raise JobError("bad_request", "Key này không phải của Google Gemini: điền Base URL của dịch vụ (Tuỳ chọn thêm)")
-    req = urllib.request.Request(base.rstrip("/") + "/models", headers={"authorization": f"Bearer {key}"})
-    try: data = json.load(urllib.request.urlopen(req, timeout=30)).get("data") or []
-    except urllib.error.HTTPError as e:
-        raise JobError("llm_failed", "API key không đúng hoặc không có quyền" if e.code in (400, 401, 403) else f"Máy chủ AI trả lỗi HTTP {e.code}")
-    except Exception as e: raise JobError("llm_failed", f"Không kết nối được máy chủ AI: {e}")
-    ids = sorted({m["id"].removeprefix("models/") for m in data if isinstance(m, dict) and m.get("id")} - {""})
-    ids = [i for i in ids if not NOT_CHAT.search(i)]
-    ids.sort(key=lambda i: (i != GEMINI_MODEL, "flash" not in i, i))  # the measured default first, then the fast ones
-    return {"base_url": base, "models": ids}
+    if base_url: cands = [provider_of(base_url) or ("Dịch vụ tự điền", (), base_url, ())]
+    elif not api_key and llm["base_url"]: cands = [provider_of(llm["base_url"]) or ("Dịch vụ đã lưu", (), llm["base_url"], ())]
+    else: cands = providers_for(key)
+    if not cands:
+        raise JobError("bad_request", "Không nhận ra key này (hỗ trợ sẵn: Gemini, OpenAI/GPT, Claude, DeepSeek, Grok, Groq, OpenRouter). "
+                                      "Dịch vụ khác: điền Base URL trong Tuỳ chọn thêm")
+    why = ""
+    for name, _, base, prefer in cands:
+        try:
+            data = json.load(urllib.request.urlopen(urllib.request.Request(base + "/models", headers=llm_headers(key, base)), timeout=30)).get("data") or []
+            if name == "OpenRouter":  # its model list is public: check the key itself
+                urllib.request.urlopen(urllib.request.Request(base + "/key", headers=llm_headers(key, base)), timeout=30).read()
+        except urllib.error.HTTPError as e:
+            why = "API key không đúng hoặc không có quyền" if e.code in (400, 401, 403) else f"{name} trả lỗi HTTP {e.code}"; continue
+        except Exception as e:
+            why = f"Không kết nối được {name}: {e}"; continue
+        ids = {m["id"].removeprefix("models/") for m in data if isinstance(m, dict) and m.get("id")} - {""}
+        rank = lambda i: (next((k for k, w in enumerate(prefer) if w in i), len(prefer)), i)  # noqa: E731
+        return {"provider": name, "base_url": base, "models": sorted((i for i in ids if not NOT_CHAT.search(i)), key=rank)}
+    raise JobError("llm_failed", why)
 
 
 def llm_test(model):
     """One tiny request with the saved key: is this model usable right now? -> (ok, message)"""
     llm = llm_config(); llm["model"] = model or llm["model"]
     body = json.dumps({"model": llm["model"], "messages": [{"role": "user", "content": "Reply with: ok"}]}).encode()
-    req = urllib.request.Request(llm["base_url"].rstrip("/") + "/chat/completions", body, {"content-type": "application/json", "authorization": f"Bearer {llm['api_key']}"})
+    req = urllib.request.Request(llm["base_url"].rstrip("/") + "/chat/completions", body, llm_headers(llm["api_key"], llm["base_url"]))
     t = time.time()
     try: urllib.request.urlopen(req, timeout=45).read()  # gemini-3.5-flash takes ~25 s even for one word
     except urllib.error.HTTPError as e:
@@ -481,7 +515,7 @@ def llm_test(model):
 def _llm_call(llm, prompt, n):
     body = json.dumps({"model": llm["model"], "temperature": 0.3, "messages": [{"role": "user", "content": prompt}]}).encode()
     url = llm["base_url"].rstrip("/") + ("" if llm["base_url"].rstrip("/").endswith("/chat/completions") else "/chat/completions")
-    req = urllib.request.Request(url, body, {"content-type": "application/json", **({"authorization": f"Bearer {llm['api_key']}"} if llm["api_key"] else {})})
+    req = urllib.request.Request(url, body, llm_headers(llm["api_key"], llm["base_url"]))
     for attempt in range(5):  # Gemini answers 429/503 "high demand" often; they clear within seconds
         try:
             out = json.load(urllib.request.urlopen(req, timeout=180))["choices"][0]["message"]["content"]
