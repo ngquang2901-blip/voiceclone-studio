@@ -546,9 +546,38 @@ PAGES.settings = {
         field('Model chép lời', sel([['large-v3', 'large-v3 (chính xác, nặng)'], ['small', 'small (nhanh, nhẹ)']], st.asr_model, v => patch({ asr_model: v }), 'Model chép lời'))));
       if (sec === 'models') await modelsSection();
       if (sec === 'ai') {
-        const llm = st.llm || {}; const url = h('input', { type: 'text', value: llm.base_url || '', placeholder: 'https://api.openai.com/v1' }), mdl = h('input', { type: 'text', value: llm.model || '', placeholder: 'tên model' }), key = h('input', { type: 'password', autocomplete: 'off', placeholder: llm.has_key ? 'Đã lưu khóa (nhập để thay)' : 'API key' });
-        col.append(h('div', { class: 'card' }, h('p', { class: 'muted', style: 'margin-bottom:10px' }, 'Dùng cho dịch tự động bằng AI. Chỉ cần dán API key Google Gemini (aistudio.google.com) rồi Lưu; dịch vụ khác tương thích OpenAI thì điền thêm Base URL và Model. Khóa chỉ lưu trên máy này.'), field('Base URL', url), field('Model', mdl), field('API key', key),
-          h('div', { class: 'row' }, btn('Lưu', { cls: 'primary', onclick: e => busy(e.currentTarget, async () => { const l = { base_url: url.value.trim(), model: mdl.value.trim() }; if (key.value) l.api_key = key.value; await patch({ llm: l }); S.settings = await api('/settings'); draw(); }) }), h('span', { class: 'muted small' }, llm.has_key ? '✓ Đã có API key' : 'Chưa có API key'))));
+        const llm = st.llm || {};
+        const key = h('input', { type: 'password', autocomplete: 'off', placeholder: llm.has_key ? 'Đã lưu khóa — dán khóa mới để thay' : 'Dán API key vào đây' });
+        const url = h('input', { type: 'text', value: llm.base_url || '', placeholder: 'Để trống nếu dùng Google Gemini' });
+        const mdl = h('select', { 'aria-label': 'Model', disabled: true }, h('option', { value: llm.model || '' }, llm.model || '(dán key để tải danh sách)')); mdl.value = llm.model || '';
+        const status = h('span', { class: 'muted small' }, llm.has_key ? '✓ Đã có API key' : 'Chưa có API key');
+        const load = btn('Tải danh sách model', { icon: 'dl' });
+        // check the key by listing its models; only a key that works is saved
+        const fetchModels = () => busy(load, async () => {
+          status.textContent = 'Đang kiểm tra key…';
+          const body = { base_url: url.value.trim() }; if (key.value.trim()) body.api_key = key.value.trim();
+          let r; try { r = await api('/llm/models', { method: 'POST', json: body }); } catch (e) { status.textContent = '✗ ' + e.message; throw e; }
+          if (!r.models.length) { status.textContent = '✗ Key đúng nhưng không có model chat nào'; return; }
+          const keep = r.models.includes(mdl.value) ? mdl.value : r.models[0];
+          mdl.replaceChildren(...r.models.map(m => h('option', { value: m }, m))); mdl.value = keep; mdl.disabled = false;
+          const l = { base_url: url.value.trim() || r.base_url, model: keep }; if (body.api_key) l.api_key = body.api_key;
+          if (body.api_key || l.model !== llm.model || l.base_url !== llm.base_url) await patch({ llm: l }, 'Đã lưu cài đặt AI');
+          key.value = ''; if (body.api_key) await testModel(); key.placeholder = 'Đã lưu khóa — dán khóa mới để thay';
+          status.textContent = '✓ Key dùng được · ' + r.models.length + ' model';
+        });
+        load.addEventListener('click', fetchModels);
+        key.addEventListener('paste', () => setTimeout(fetchModels, 0));
+        const testNote = h('div', { class: 'muted small', style: 'margin-top:-6px;margin-bottom:10px' });
+        async function testModel() {
+          testNote.textContent = 'Đang thử ' + mdl.value + '…';
+          try { const t = await api('/llm/test', { method: 'POST', json: { model: mdl.value } }); testNote.textContent = (t.ok ? '✓ ' : '✗ ') + t.message; testNote.style.color = t.ok ? '' : 'var(--danger, #f87171)'; }
+          catch (e) { testNote.textContent = '✗ ' + e.message; }
+        }
+        mdl.addEventListener('change', () => patch({ llm: { model: mdl.value } }, 'Đã chọn ' + mdl.value).then(testModel).catch(e => toast(e.message, 'err')));
+        col.append(h('div', { class: 'card' }, h('p', { class: 'muted', style: 'margin-bottom:10px' }, 'Dán API key (Google Gemini: lấy ở aistudio.google.com) — app tự kiểm tra key và tải các model dùng được, rồi chọn model. Khóa chỉ lưu trên máy này.'),
+          field('API key', key), h('div', { class: 'row', style: 'margin-bottom:12px' }, load, status), field('Model', mdl), testNote,
+          h('details', { class: 'more' }, h('summary', null, 'Tuỳ chọn thêm'), field('Base URL (dịch vụ khác tương thích OpenAI)', url))));
+        if (llm.has_key) fetchModels().catch(() => {});
       }
       if (sec === 'license') licenseSection();
       if (sec === 'storage') col.append(h('div', { class: 'card' }, h('div', { class: 'lbl' }, 'Thư mục dữ liệu'), h('p', { style: 'word-break:break-all;margin:4px 0 12px' }, st.data_dir || ''),

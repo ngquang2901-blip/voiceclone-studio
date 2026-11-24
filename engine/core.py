@@ -6,7 +6,7 @@ import soundfile as sf
 
 from jobs import JobError
 
-VERSION = "0.2.5"
+VERSION = "0.2.6"
 SR = 24000
 DATA = os.environ.get("VC_DATA") or os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "VoiceCloneStudio")
 D = {k: os.path.join(DATA, k) for k in ("voices", "takes", "transcriptions", "dub", "audiobooks", "designs", "models")}
@@ -439,6 +439,43 @@ def llm_config():
     if llm["api_key"].startswith(("AIza", "AQ.")):
         llm["base_url"] = llm["base_url"] or GEMINI_URL; llm["model"] = llm["model"] or GEMINI_MODEL
     return llm
+
+
+NOT_CHAT = re.compile(r"tts|image|embed|audio|live|veo|imagen|lyria|banana|whisper|dall-e|moderation|transcribe|realtime|search|customtools|aqa|robotics|computer-use|antigravity|genie|decision", re.I)
+
+
+def llm_models(api_key=None, base_url=None):
+    """Chat models the given (or saved) key can use, recommended first. GET {base}/models of the OpenAI-compatible API."""
+    llm = settings()["llm"]
+    key = (api_key or llm["api_key"]).strip()
+    base = (base_url or "").strip() or llm["base_url"] or (GEMINI_URL if key.startswith(("AIza", "AQ.")) else "")
+    if not key: raise JobError("bad_request", "Hãy dán API key")
+    if not base: raise JobError("bad_request", "Key này không phải của Google Gemini: điền Base URL của dịch vụ (Tuỳ chọn thêm)")
+    req = urllib.request.Request(base.rstrip("/") + "/models", headers={"authorization": f"Bearer {key}"})
+    try: data = json.load(urllib.request.urlopen(req, timeout=30)).get("data") or []
+    except urllib.error.HTTPError as e:
+        raise JobError("llm_failed", "API key không đúng hoặc không có quyền" if e.code in (400, 401, 403) else f"Máy chủ AI trả lỗi HTTP {e.code}")
+    except Exception as e: raise JobError("llm_failed", f"Không kết nối được máy chủ AI: {e}")
+    ids = sorted({m["id"].removeprefix("models/") for m in data if isinstance(m, dict) and m.get("id")} - {""})
+    ids = [i for i in ids if not NOT_CHAT.search(i)]
+    ids.sort(key=lambda i: (i != GEMINI_MODEL, "flash" not in i, i))  # the measured default first, then the fast ones
+    return {"base_url": base, "models": ids}
+
+
+def llm_test(model):
+    """One tiny request with the saved key: is this model usable right now? -> (ok, message)"""
+    llm = llm_config(); llm["model"] = model or llm["model"]
+    body = json.dumps({"model": llm["model"], "messages": [{"role": "user", "content": "Reply with: ok"}]}).encode()
+    req = urllib.request.Request(llm["base_url"].rstrip("/") + "/chat/completions", body, {"content-type": "application/json", "authorization": f"Bearer {llm['api_key']}"})
+    t = time.time()
+    try: urllib.request.urlopen(req, timeout=45).read()  # gemini-3.5-flash takes ~25 s even for one word
+    except urllib.error.HTTPError as e:
+        if e.code in (429, 503): return True, "Model dùng được nhưng đang quá tải, có thể chậm"
+        return False, f"Model này không dùng được với key (HTTP {e.code}), hãy chọn model khác"
+    except Exception as e:
+        if "timed out" in str(e): return False, "Model không trả lời trong 45 s (đang quá tải?): thử lại sau hoặc chọn model khác"
+        return False, f"Không kết nối được máy chủ AI: {e}"
+    return True, f"Model trả lời sau {time.time() - t:.1f} s"
 
 
 def _llm_call(llm, prompt, n):

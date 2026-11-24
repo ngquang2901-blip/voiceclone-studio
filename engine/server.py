@@ -103,6 +103,17 @@ def get_settings():
             "llm": {"base_url": llm["base_url"], "model": llm["model"], "has_key": bool(llm["api_key"])}}
 
 
+@app.post("/llm/models")
+def llm_models(body: dict = Body(default={})):
+    return core.llm_models(body.get("api_key"), body.get("base_url"))
+
+
+@app.post("/llm/test")
+def llm_test(body: dict = Body(default={})):
+    ok, message = core.llm_test(body.get("model"))
+    return {"ok": ok, "message": message}
+
+
 @app.patch("/settings")
 def patch_settings(body: dict = Body(...)):
     s = core.settings(); before = (s["device"], s["asr_model"])
