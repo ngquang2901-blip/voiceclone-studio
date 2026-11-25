@@ -129,7 +129,7 @@ function updateBox() {
       try { await window.vc.installUpdate(f => p.set(f, f < 1 ? 'Đang tải bản cập nhật…' : 'Đang cài, app sẽ tự mở lại…')); }
       catch (e) { p.remove(); throw new Error(e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')); }
     }));
-    prog.replaceChildren(h('p', { class: 'muted small', style: 'white-space:pre-wrap;margin:8px 0' }, u.notes.slice(0, 600)), go);
+    prog.replaceChildren(h('p', { class: 'muted small', style: 'white-space:pre-wrap;margin:8px 0' }, u.notes.replace(/[*`]/g, '').slice(0, 1500)), go);
   }
   box.append(h('div', { class: 'row wrap' }, check, note), prog);
   return box;
