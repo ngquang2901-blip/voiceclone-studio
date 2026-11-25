@@ -196,6 +196,11 @@ ipcMain.handle("update-install", async (e) => {
   return true;
 });
 
-app.whenReady().then(boot);
+app.whenReady().then(() => {
+  // the updater leaves its downloaded setup.exe in temp: remove old ones once the new version runs
+  for (const f of fs.readdirSync(app.getPath("temp")).filter((n) => /^VoiceClone-Studio-.*-setup\.exe$/i.test(n)))
+    fs.rm(path.join(app.getPath("temp"), f), { force: true }, () => {});
+  boot();
+});
 app.on("before-quit", () => { quitting = true; stopEngine(); });
 app.on("window-all-closed", () => app.quit());

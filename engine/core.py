@@ -6,7 +6,7 @@ import soundfile as sf
 
 from jobs import JobError
 
-VERSION = "0.2.9"
+VERSION = "0.2.10"
 SR = 24000
 DATA = os.environ.get("VC_DATA") or os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "VoiceCloneStudio")
 D = {k: os.path.join(DATA, k) for k in ("voices", "takes", "transcriptions", "dub", "audiobooks", "designs", "models")}
@@ -184,6 +184,9 @@ def tts_model():
         dev = device()
         _tts = OmniVoice.from_pretrained(need_model("tts"), device_map="cuda:0" if dev == "cuda" else "cpu",
                                          dtype=torch.float16 if dev == "cuda" else torch.float32)
+        if os.environ.get("VC_FASTGEN", "1") == "1":
+            import types, fastgen
+            _tts._generate_iterative = types.MethodType(fastgen.generate_iterative, _tts)
     return _tts
 
 
@@ -204,13 +207,34 @@ def asr_model():
     return _asr
 
 
+def free_mb():
+    import torch
+    return torch.cuda.mem_get_info()[0] >> 20 if torch.cuda.is_available() else 1 << 20
+
+
+def make_room(need_mb, keep):
+    """Before a GPU step: if less than need_mb is free, drop the resident model this step does not use.
+    A 6 GB card shared with browsers otherwise overflows into system RAM and every step runs 5-10x slower."""
+    global _tts, _asr
+    if device() != "cuda": return
+    import gc, torch
+    for name in ("asr", "tts"):  # Whisper reloads in ~15 s, the TTS model in ~20 s
+        if free_mb() >= need_mb or name == keep: continue
+        if name == "asr" and _asr is not None: _asr = None
+        elif name == "tts" and _tts is not None: _tts = None; _prompts.clear()
+        else: continue
+        gc.collect(); torch.cuda.empty_cache()
+        print(f"vram: dropped {name} for {keep}, now {free_mb()} MB free", flush=True)
+
+
 def warm_up():
-    """Load the models in the background when the engine starts, so the first click does not wait ~40 s."""
+    """Load the models in the background when the engine starts, so the first click does not wait ~40 s.
+    Whisper only stays resident when the card has room for it next to the TTS model and its working memory."""
     def run():
         try:
             if model_path("tts"):
                 with gpu: tts_model()
-            if model_path(asr_model_id()):
+            if model_path(asr_model_id()) and (device() != "cuda" or free_mb() > 3000):
                 with gpu: asr_model()
         except Exception as e:  # a failed warm-up only means the first request loads them (and reports the error)
             print("warm-up:", e, flush=True)
@@ -258,6 +282,8 @@ def forget_voice(vid):
     _prompts.pop(vid, None)
 
 
+TTS_WORK_MB = 700  # free VRAM a 4-line batch needs on top of the model: measured +329 MB with fastgen (+630 MB upstream), plus slack
+ASR_NEED_MB = 2200  # Whisper large-v3 int8_float16 load (~1.5 GB) + batched decoding
 BATCH = 4  # measured on a 6 GB RTX 3060: 4 lines per call is 1.9x faster than one at a time (+360 MB); 8 is no faster
 
 
@@ -284,10 +310,14 @@ def generate_many(texts, voice=None, instruct=None, language=None, speed=None, d
     from textplan import guess_language
     from audioclean import clean
     steps = QUALITY_STEPS.get(quality or settings()["quality"], 32)
-    langs = [language or guess_language(t) for t in texts]
+    # batch lines of similar length together: every row in a call is padded to the longest one
+    order = sorted(range(len(texts)), key=lambda k: len(texts[k]))
     durations = durations or [None] * len(texts)
+    texts, durations = [texts[k] for k in order], [durations[k] for k in order]
+    langs = [language or guess_language(t) for t in texts]
     out, i, size = [], 0, BATCH
     with gpu:  # first import of omnivoice also happens here: two threads importing it at once broke the package import
+        make_room(TTS_WORK_MB, keep="tts")
         m = tts_model()
         from omnivoice.models.omnivoice import OmniVoiceGenerationConfig
         kw = {"generation_config": OmniVoiceGenerationConfig(num_step=steps)}
@@ -311,7 +341,9 @@ def generate_many(texts, voice=None, instruct=None, language=None, speed=None, d
             out += [clean(np.asarray(a, dtype=np.float32), SR) for a in res]
             i = j
             if progress: progress(i / len(texts))
-    return out
+    back = [None] * len(out)
+    for pos, k in enumerate(order): back[k] = out[pos]
+    return back
 
 
 def speak(text, voice, language=None, speed=None, quality=None, progress=None, gap_ms=120):
@@ -358,6 +390,7 @@ def transcribe(path, language=None):
     with gpu:
         # batched decoding of VAD chunks: 2 min of speech 70.5 s -> 5.7 s on an RTX 3060, same text (99.5 %).
         # GPU shared with browsers/games can run out: free the TTS model, smaller batches, then the CPU.
+        make_room(ASR_NEED_MB if _asr is None else 700, keep="asr")
         for bs in (8, 4, 2, 1, "cpu"):
             try:
                 if bs == "cpu":
@@ -386,6 +419,7 @@ def separate(src_wav, out_dir):
     from demucs.apply import BagOfModels, apply_model
     from demucs.hf import load_safetensors_model
     with gpu:
+        make_room(1500, keep="sep")
         if _sep is None:  # load from our model folder: no network at use time
             snap = model_path("separator"); bag = yaml.safe_load(open(os.path.join(snap, "htdemucs.yaml"), encoding="utf-8"))
             _sep = BagOfModels([load_safetensors_model(os.path.join(snap, f"{sig}.safetensors")) for sig in bag["models"]], bag.get("weights"), bag.get("segment"))
