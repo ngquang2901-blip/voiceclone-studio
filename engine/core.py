@@ -6,7 +6,7 @@ import soundfile as sf
 
 from jobs import JobError
 
-VERSION = "0.2.7"
+VERSION = "0.2.8"
 SR = 24000
 DATA = os.environ.get("VC_DATA") or os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "VoiceCloneStudio")
 D = {k: os.path.join(DATA, k) for k in ("voices", "takes", "transcriptions", "dub", "audiobooks", "designs", "models")}
@@ -354,10 +354,26 @@ def sentences(segs):
 def transcribe(path, language=None):
     from faster_whisper import BatchedInferencePipeline
     audio = load_mono(path, sr=16000)  # ffmpeg decode: faster-whisper 1.2.1's PyAV call breaks on PyAV 19
+    global _tts, _asr
     with gpu:
-        # batched decoding of VAD chunks: 2 min of speech 70.5 s -> 5.7 s on an RTX 3060, same text (99.5 %)
-        segs, info = BatchedInferencePipeline(model=asr_model()).transcribe(audio, language=language or None, batch_size=8, word_timestamps=True)
-        segs = sentences(list(segs))
+        # batched decoding of VAD chunks: 2 min of speech 70.5 s -> 5.7 s on an RTX 3060, same text (99.5 %).
+        # GPU shared with browsers/games can run out: free the TTS model, smaller batches, then the CPU.
+        for bs in (8, 4, 2, 1, "cpu"):
+            try:
+                if bs == "cpu":
+                    from faster_whisper import WhisperModel
+                    _asr = WhisperModel(need_model(asr_model_id()), device="cpu", compute_type="int8", cpu_threads=os.cpu_count() or 4)
+                segs, info = BatchedInferencePipeline(model=asr_model()).transcribe(audio, language=language or None, batch_size=4 if bs == "cpu" else bs, word_timestamps=True)
+                segs = sentences(list(segs))
+                if bs == "cpu": _asr = None  # next job tries the GPU again
+                break
+            except RuntimeError as e:
+                # after an OOM CTranslate2 can also fail with other CUDA errors ("invalid device ordinal"): same path
+                if not re.search(r"out of memory|cuda", str(e), re.I) or bs == "cpu": raise
+                print(f"transcribe: GPU error at batch {bs} ({e}), retrying smaller", flush=True)
+                _tts = _asr = None  # TTS reloads (~20 s) on the next speech request; Whisper reloads fresh here
+                import gc, torch
+                gc.collect(); torch.cuda.empty_cache()
     return {"language": info.language, "text": " ".join(s["text"] for s in segs), "segments": segs, "seconds": round(len(audio) / 16000, 2)}
 
 
@@ -491,8 +507,9 @@ def llm_models(api_key=None, base_url=None):
         except Exception as e:
             why = f"Không kết nối được {name}: {e}"; continue
         ids = {m["id"].removeprefix("models/") for m in data if isinstance(m, dict) and m.get("id")} - {""}
-        rank = lambda i: (next((k for k, w in enumerate(prefer) if w in i), len(prefer)), i)  # noqa: E731
-        return {"provider": name, "base_url": base, "models": sorted((i for i in ids if not NOT_CHAT.search(i)), key=rank)}
+        bucket = lambda i: next((k for k, w in enumerate(prefer) if w in i), len(prefer))  # noqa: E731
+        ids = sorted((i for i in ids if not NOT_CHAT.search(i)), reverse=True)  # newest version first...
+        return {"provider": name, "base_url": base, "models": sorted(ids, key=bucket)}  # ...within each preferred group
     raise JobError("llm_failed", why)
 
 
@@ -513,10 +530,10 @@ def llm_test(model):
 
 
 def _llm_call(llm, prompt, n):
-    body = json.dumps({"model": llm["model"], "temperature": 0.3, "messages": [{"role": "user", "content": prompt}]}).encode()
+    payload = {"model": llm["model"], "temperature": 0.3, "messages": [{"role": "user", "content": prompt}]}
     url = llm["base_url"].rstrip("/") + ("" if llm["base_url"].rstrip("/").endswith("/chat/completions") else "/chat/completions")
-    req = urllib.request.Request(url, body, llm_headers(llm["api_key"], llm["base_url"]))
     for attempt in range(5):  # Gemini answers 429/503 "high demand" often; they clear within seconds
+        req = urllib.request.Request(url, json.dumps(payload).encode(), llm_headers(llm["api_key"], llm["base_url"]))
         try:
             out = json.load(urllib.request.urlopen(req, timeout=180))["choices"][0]["message"]["content"]
             m = re.search(r"\[.*\]", out, re.S)
@@ -525,8 +542,13 @@ def _llm_call(llm, prompt, n):
             if isinstance(arr, list) and len(arr) == n: return [str(x).strip() for x in arr]
             why = "AI trả lời sai định dạng"
         except urllib.error.HTTPError as e:
+            detail = e.read().decode("utf-8", "replace")
+            if e.code == 400 and "temperature" in detail and "temperature" in payload:
+                payload.pop("temperature"); continue  # newer Claude / GPT-5 models refuse it: resend without
             if e.code in (400, 401, 403, 404):
-                raise JobError("llm_failed", f"AI dịch từ chối (HTTP {e.code}): kiểm tra API key / tên model trong Cài đặt")
+                try: detail = json.loads(detail)["error"]["message"]
+                except Exception: detail = detail[:200]
+                raise JobError("llm_failed", f"AI dịch từ chối (HTTP {e.code}): {detail}")
             why = f"HTTP {e.code}"
         except Exception as e:  # timeouts, connection resets
             why = str(e)

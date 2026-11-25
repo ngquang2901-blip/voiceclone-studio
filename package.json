@@ -1,7 +1,7 @@
 {
   "name": "voiceclone-studio",
   "productName": "VoiceClone Studio",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "description": "Clone giọng, đọc văn bản, lồng tiếng video, sách nói — chạy trên máy",
   "main": "main.js",
   "private": true,
