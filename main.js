@@ -156,6 +156,46 @@ ipcMain.handle("restart-engine", async () => {
   return engineUrl;
 });
 
+// ---------- updates: latest GitHub release of the public repo ----------
+const REPO = "ngquang2901-blip/voiceclone-studio";
+const newer = (a, b) => { // semver-ish: 0.2.10 > 0.2.9, 0.2.9 > 0.2.9-test.0
+  const p = (v) => { const [main, pre] = v.replace(/^v/, "").split("-"); return [...main.split(".").map(Number), pre ? 0 : 1]; };
+  const x = p(a), y = p(b);
+  for (let i = 0; i < 4; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
+  return false;
+};
+async function latestRelease() {
+  const r = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, { headers: { accept: "application/vnd.github+json" }, signal: AbortSignal.timeout(20000) });
+  if (!r.ok) throw new Error(`Không kiểm tra được bản mới (GitHub trả HTTP ${r.status})`);
+  const rel = await r.json(); const asset = (rel.assets || []).find((a) => /setup\.exe$/i.test(a.name));
+  return { rel, asset };
+}
+ipcMain.handle("update-check", async () => {
+  const { rel, asset } = await latestRelease();
+  return { current: app.getVersion(), latest: rel.tag_name.replace(/^v/, ""), newer: !!asset && newer(rel.tag_name, app.getVersion()),
+           notes: rel.body || "", url: rel.html_url, size: asset ? asset.size : 0 };
+});
+ipcMain.handle("update-install", async (e) => {
+  const { rel, asset } = await latestRelease();
+  if (!asset || !newer(rel.tag_name, app.getVersion())) throw new Error("Đang dùng bản mới nhất");
+  const file = path.join(app.getPath("temp"), asset.name);
+  const r = await fetch(asset.browser_download_url, { signal: AbortSignal.timeout(30 * 60000) });
+  if (!r.ok) throw new Error(`Tải bản cập nhật lỗi (HTTP ${r.status})`);
+  const out = fs.createWriteStream(file), hash = crypto.createHash("sha256"); let got = 0;
+  for await (const chunk of r.body) {
+    out.write(chunk); hash.update(chunk); got += chunk.length;
+    e.sender.send("update-progress", got / asset.size);
+  }
+  await new Promise((res, rej) => out.end((err) => (err ? rej(err) : res())));
+  // a cut download or a swapped file must never run
+  if (got !== asset.size) throw new Error("Tải bản cập nhật bị thiếu, hãy thử lại");
+  if (asset.digest && asset.digest !== "sha256:" + hash.digest("hex")) throw new Error("File cập nhật không khớp mã kiểm tra, đã huỷ");
+  // silent install (keeps license, voices, settings), then the installer starts the app again
+  spawn(file, ["/S", "--force-run"], { detached: true, stdio: "ignore" }).unref();
+  setTimeout(() => app.quit(), 500);
+  return true;
+});
+
 app.whenReady().then(boot);
 app.on("before-quit", () => { quitting = true; stopEngine(); });
 app.on("window-all-closed", () => app.quit());

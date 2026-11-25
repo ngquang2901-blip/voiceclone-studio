@@ -110,6 +110,34 @@ async function busy(b, fn) {
   b.disabled = true;
   try { return await fn(); } catch (e) { if (!e || e.status !== 402) toast((e && e.message) || String(e), 'err'); } finally { b.disabled = false; }
 }
+/* ---------- updates (desktop shell checks GitHub Releases) ---------- */
+function updateBox() {
+  const box = h('div', { style: 'margin-top:12px' });
+  if (!window.vc || !window.vc.checkUpdate) return box;
+  const note = h('span', { class: 'muted small' }), prog = h('div');
+  const check = btn('Kiểm tra cập nhật', { icon: 'dl' });
+  check.addEventListener('click', () => busy(check, async () => {
+    note.textContent = 'Đang kiểm tra…';
+    try { const u = await window.vc.checkUpdate(); showUpdate(u); } catch (e) { note.textContent = '✗ ' + e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''); }
+  }));
+  function showUpdate(u) {
+    if (!u.newer) { note.textContent = '✓ Đang dùng bản mới nhất (' + u.current + ')'; return; }
+    note.textContent = 'Có bản mới ' + u.latest + ' (đang dùng ' + u.current + ', tải ' + fmtSize(u.size / 1048576) + ')';
+    const go = btn('Tải và cài bản ' + u.latest, { cls: 'primary', icon: 'dl' });
+    go.addEventListener('click', () => busy(go, async () => {
+      const p = progressBox(); prog.replaceChildren(p);
+      try { await window.vc.installUpdate(f => p.set(f, f < 1 ? 'Đang tải bản cập nhật…' : 'Đang cài, app sẽ tự mở lại…')); }
+      catch (e) { p.remove(); throw new Error(e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')); }
+    }));
+    prog.replaceChildren(h('p', { class: 'muted small', style: 'white-space:pre-wrap;margin:8px 0' }, u.notes.slice(0, 600)), go);
+  }
+  box.append(h('div', { class: 'row wrap' }, check, note), prog);
+  return box;
+}
+async function startupUpdateCheck() {  // quiet: only speaks when there is something new
+  if (!window.vc || !window.vc.checkUpdate) return;
+  try { const u = await window.vc.checkUpdate(); if (u.newer) toast('Có bản mới ' + u.latest + ' — vào Cài đặt → Giới thiệu để cập nhật', 'ok'); } catch (e) { /* offline */ }
+}
 function withProgress(host, fn) { const p = progressBox(); host.append(p); return fn(p).finally(() => p.remove()); }
 
 /* ---------- state ---------- */
@@ -584,8 +612,8 @@ PAGES.settings = {
       if (sec === 'license') licenseSection();
       if (sec === 'storage') col.append(h('div', { class: 'card' }, h('div', { class: 'lbl' }, 'Thư mục dữ liệu'), h('p', { style: 'word-break:break-all;margin:4px 0 12px' }, st.data_dir || ''),
         h('div', { class: 'row wrap' }, window.vc && window.vc.showItemInFolder ? btn('Mở thư mục', { icon: 'folder', onclick: () => window.vc.showItemInFolder(st.data_dir) }) : null, btn('Giải phóng bộ nhớ GPU', { onclick: e => busy(e.currentTarget, async () => { await api('/model/unload', { method: 'POST' }); toast('Đã giải phóng model khỏi GPU', 'ok'); }) }))));
-      if (sec === 'about') col.append(h('div', { class: 'card' }, h('p', null, 'VoiceClone Studio · phiên bản ' + ((S.health && S.health.version) || '?') + (window.vc && window.vc.version ? ' (ứng dụng ' + window.vc.version + ')' : ''))),
-        h('div', { class: 'card' }, h('h3', null, 'Ghi công'), h('p', { class: 'attr' }, ATTR), h('p', { class: 'attr', style: 'margin-top:10px' }, 'OmniVoice (k2-fsa, Apache-2.0) · faster-whisper (MIT) · Demucs (MIT) · Argos Translate (MIT) · FFmpeg (LGPL)')));
+      if (sec === 'about') col.append(h('div', { class: 'card' }, h('p', null, 'VoiceClone Studio · phiên bản ' + ((S.health && S.health.version) || '?') + (window.vc && window.vc.version ? ' (ứng dụng ' + window.vc.version + ')' : '')), updateBox()),
+        h('div', { class: 'card' }, h('h3', null, 'Ghi công'), h('p', { class: 'attr' }, ATTR), h('p', { class: 'attr', style: 'margin-top:10px' }, 'OmniVoice (k2-fsa; mã nguồn Apache-2.0, trọng số model CC-BY-NC — chỉ dùng phi thương mại) · faster-whisper (MIT) · Demucs (MIT) · Argos Translate (MIT) · FFmpeg (LGPL)')));
     }
     async function modelsSection() {
       let m; try { m = await api('/models'); } catch (e) { toast(e.message, 'err'); return; }
@@ -615,4 +643,5 @@ buildRail();
 $('#retry').addEventListener('click', () => refreshHealth().then(route));
 window.addEventListener('hashchange', route);
 refreshHealth().then(() => api('/settings').then(s => { S.settings = s; }).catch(() => {})).finally(route);
+setTimeout(startupUpdateCheck, 5000);
 setInterval(refreshHealth, 15000);
